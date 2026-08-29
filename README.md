@@ -1,5 +1,7 @@
 # Web Harness
 
+![Web Harness](screenshot.png)
+
 **Web Harness** é uma interface web de chat com LLMs (compatível com a API OpenAI) pensada para rodar no navegador e orquestrar modelos, agentes e ferramentas de forma simples. Tudo é servido por um backend PHP leve com autenticação de sessão — sem dependências de frameworks pesados.
 
 ## Por que existe
