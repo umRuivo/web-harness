@@ -60,8 +60,18 @@ A sessão é mantida em `PHP_SESSION` com cookie seguro; a senha é validada no 
 4. Configure a URL base do LLM e a chave (ex.: Ollama Cloud `https://ollama.com/v1`).
 5. Converse, use tools/MCP, anexe imagens e orquestre agentes.
 
+## Sandbox no localStorage
+
+Todo o estado do app — servidores/configurações de LLM, skills, agentes, sub-agentes, orquestradores, conversas e estatísticas — é persistido no `localStorage` do navegador. Isso funciona como uma **sandbox client-side**: cada usuário tem seu próprio ambiente isolado, sem precisar de armazenamento no servidor nem de arquivos compartilhados.
+
+- As configurações ficam restritas ao navegador/dispositivo (e ao perfil do navegador) de quem usa.
+- É útil para criar e experimentar "arquivos" de configuração, prompts, skills e agentes no próprio navegador, sem mexer no backend — uma forma de *sandbox* leve e portátil.
+- Para "limpar" o sandbox, basta limpar os dados do site no navegador; a sessão de autenticação (server-side) é independente disso.
+
+Essa abordagem mantém o servidor enxuto (só relay + auth) e deixa a experimentação por conta do cliente.
+
 ## Observações
 
 - O app é voltado para **uso pessoal/educacional**; revise as permissões de arquivos expostas pelas ferramentas MCP antes de disponibilizá-lo publicamente.
 - Conexões a Ollama locais podem ser bloqueadas por *firewall* de hospedagem (egress) — nesse caso, use um provedor na nuvem.
-- O diretório `workspace/` (arquivos do usuário) e `.playwright-mcp/` (gravações de teste) ficam fora do versionamento (`.gitignore`).
+- O diretório `.playwright-mcp/` (gravações de teste) fica fora do versionamento (`.gitignore`); o `workspace/` é versionado.
