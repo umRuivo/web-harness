@@ -1,5 +1,4 @@
 .playwright-mcp/
-workspace/
 relay_debug.txt
 *.log
 .DS_Store
