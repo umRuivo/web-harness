@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Web Harness</title>
+<link rel="stylesheet" href="lama.css">
+</head>
+<body>
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-section" id="serversSection">
+    <h3 onclick="toggleSection('serversSection','llama_servers_collapsed')">Servidores <span class="section-toggle">▾</span></h3>
+    <div class="section-body">
+      <div class="btn-row">
+        <button class="btn small" onclick="openServerModal()">+ Adicionar servidor</button>
+        <button class="btn small" onclick="openBatchServerModal()">⚡ Em lote</button>
+      </div>
+      <div class="btn-row"><button class="btn small" onclick="removeDuplicateServers()">🗑 Retirar servidores repetidos</button></div>
+      <div class="btn-row">
+        <button class="btn small" onclick="openExportModal()">📤 Exportar</button>
+        <button class="btn small" onclick="openImportModal()">📥 Importar</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" onchange="importAll(event)">
+      </div>
+      <div id="importStatus" class="import-status"></div>
+      <div id="serverList"></div>
+    </div>
+  </div>
+  <div class="sidebar-section" id="convSection">
+    <h3 onclick="toggleSection('convSection','llama_convs_collapsed')">Conversas <span class="section-toggle">▾</span></h3>
+    <div class="section-body">
+      <div class="btn-row"><button class="btn small" onclick="newConversation()">+ Nova conversa</button></div>
+      <div id="convList"></div>
+    </div>
+  </div>
+  <div class="sidebar-section" id="agentSection">
+    <h3 onclick="toggleSection('agentSection','llama_agents_collapsed')">Agentes <span class="section-toggle">▾</span></h3>
+    <div class="section-body">
+      <div class="btn-row"><button class="btn small" onclick="openAgentModal()">+ Criar agente</button><button class="btn small" onclick="openEntityJSONModal('agents')">📋 JSON</button></div>
+      <div id="agentList"></div>
+    </div>
+  </div>
+  <div class="sidebar-section" id="subAgentSection">
+    <h3 onclick="toggleSection('subAgentSection','llama_subagents_collapsed')">Sub-Agentes <span class="section-toggle">▾</span></h3>
+    <div class="section-body">
+      <div class="btn-row"><button class="btn small" onclick="openSubAgentModal()">+ Criar sub-agente</button><button class="btn small" onclick="openEntityJSONModal('subAgents')">📋 JSON</button></div>
+      <div id="subAgentList"></div>
+    </div>
+  </div>
+  <div class="sidebar-section" id="skillSection">
+    <h3 onclick="toggleSection('skillSection','llama_skills_collapsed')">Skills <span class="section-toggle">▾</span></h3>
+    <div class="section-body">
+      <div class="btn-row"><button class="btn small" onclick="openSkillModal()">+ Adicionar skill</button><button class="btn small" onclick="openEntityJSONModal('skills')">📋 JSON</button></div>
+      <div id="skillList"></div>
+    </div>
+  </div>
+  <div class="sidebar-section" id="mcpSection">
+    <h3 onclick="toggleSection('mcpSection','llama_mcps_collapsed')">Ferramentas (MCP) <span class="section-toggle">▾</span></h3>
+    <div class="section-body">
+      <div class="btn-row">
+        <button class="btn small" onclick="openMCPModal()">+ Adicionar</button>
+        <button class="btn small" onclick="openMCPJSONModal()">📋 JSON</button>
+        <button class="btn small" onclick="checkAllMCPStatus()">↻ Verificar</button>
+      </div>
+      <div id="mcpList"></div>
+    </div>
+  </div>
+  <div class="sidebar-section" id="orchSection">
+    <h3 onclick="toggleSection('orchSection','llama_orchs_collapsed')">Orquestradores <span class="section-toggle">▾</span></h3>
+    <div class="section-body">
+      <div class="btn-row"><button class="btn small" onclick="openOrchModal()">+ Criar orquestrador</button><button class="btn small" onclick="openEntityJSONModal('orchestrators')">📋 JSON</button></div>
+      <div id="orchList"></div>
+    </div>
+  </div>
+  <div class="danger-zone"><button class="btn danger" onclick="clearAll()">🗑 Limpar tudo</button></div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <button class="btn-toggle-sidebar" onclick="toggleSidebar()">☰</button>
+    <span>Servidor:</span>
+    <select id="activeServerSelect" onchange="selectServer(parseInt(this.value))"><option value="">— Nenhum —</option></select>
+    <span class="server-name" id="activeServerName">Nenhum</span>
+    <span class="agent-badge-top" id="activeAgentBadge" style="display:none"></span>
+    <span class="skill-badge" id="activeSkillBadge" style="display:none"></span>
+    <span class="orch-active-badge" id="activeOrchBadge" style="display:none"></span>
+    <span class="speed-indicator" id="speedIndicator">⚡ 0 tok/s</span>
+    <span class="spacer"></span>
+    <button class="btn small" id="btnFontDown" onclick="changeFontScale(-0.1)" title="Diminuir fonte">A−</button>
+    <button class="btn small" id="btnFontUp" onclick="changeFontScale(0.1)" title="Aumentar fonte">A+</button>
+    <button class="btn small" id="btnMarkdown" onclick="toggleMarkdown()">📝</button>
+    <button class="btn small" id="btnCLI" onclick="toggleCLI()" title="Modo CLI">>_</button>
+    <button class="btn small" id="btnStop" onclick="stopGeneration()" disabled>⏹</button>
+    <button class="btn small" onclick="document.getElementById('attachInput').click()">📎</button>
+    <input type="file" id="attachInput" style="display:none" onchange="handleAttach(event)">
+    <button class="btn small" onclick="logoff()" title="Encerrar sessão (mantém configs)">🚪 Logoff</button>
+  </div>
+
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-item"><span class="stat-label">📥 IN:</span><span class="stat-value input-tok" id="statInputTokens">0</span></div>
+    <span class="stat-sep">|</span>
+    <div class="stat-item"><span class="stat-label">📤 OUT:</span><span class="stat-value output-tok" id="statOutputTokens">0</span></div>
+    <span class="stat-sep">|</span>
+    <div class="stat-item"><span class="stat-label">Σ Total:</span><span class="stat-value total-tok" id="statTotalTokens">0</span></div>
+    <span class="stat-sep">|</span>
+    <div class="stat-item"><span class="stat-label">⚡ Média:</span><span class="stat-value avg-speed" id="statAvgSpeed">0 tok/s</span></div>
+    <span class="stat-sep">|</span>
+    <div class="stat-item"><span class="stat-label">🔄 Req:</span><span class="stat-value" id="statRequests">0</span></div>
+    <button class="btn-reset-stats" onclick="resetStats()" title="Resetar">🗑</button>
+  </div>
+
+  <div class="tasks-panel" id="tasksPanel"></div>
+  <div class="chat-area" id="chatArea"><div class="msg system-msg">Selecione um servidor e inicie uma conversa.</div></div>
+  <div class="input-hint">💡 <code>/subagente tarefa</code> = background · <code>/</code> = sub-agente · <code>//</code> = skill · <code>\</code> = agente · <code>\\</code> = orquestrador · 🔧 MCPs = tools · 🌐 Wcurl = fetch() com fallback CORS</div>
+  <div class="input-area">
+    <div class="mention-popup" id="mentionPopup"></div>
+    <textarea id="userInput" rows="2" placeholder="Digite sua mensagem... (@ = workspace local · @@ = Weditor servidor · / = sub-agente · // = skill · \ = agente · \\ = orquestrador)" onkeydown="handleKey(event)" oninput="updateMentionPopup()" onclick="updateMentionPopup()"></textarea>
+    <div id="attachPreview" class="attach-preview"></div>
+    <button class="btn primary" id="btnSend" onclick="sendMessage()">Enviar</button>
+  </div>
+</div>
+
+<!-- MODAIS -->
+<div class="modal-overlay" id="modalServer"><div class="modal">
+  <h2 id="modalServerTitle">Adicionar Servidor</h2>
+  <label>Nome/Apelido</label><input type="text" id="srvName">
+  <label>URL</label><input type="text" id="srvURL" placeholder="http://localhost:8080">
+  <div class="field-row"><label>Modelo (opcional)</label><div class="input-with-btn"><input type="text" id="srvModel"><button type="button" id="btnAutoModel" onclick="autoFillModel()">🔍 Detectar</button></div><select id="srvModelSelect" style="display:none" onchange="pickDetectedModel(this.value)"></select><span id="modelStatus" class="status-msg"></span></div>
+  <div class="advanced-toggle" onclick="toggleServerAdvanced()"><span class="section-toggle">▸</span> Avançado</div>
+  <div class="advanced-fields" id="serverAdvancedFields">
+    <label>API Key (opcional)</label>
+    <div class="input-with-btn">
+      <input type="password" id="srvApiKey" autocomplete="off" placeholder="sk-...">
+      <button type="button" class="btn small" onclick="toggleSrvApiKey()" title="Mostrar/ocultar">👁</button>
+    </div>
+    <label>Tipo de API Key</label>
+    <select id="srvApiKeyType">
+      <option value="bearer">Bearer (Authorization)</option>
+      <option value="x-api-key">Header x-api-key</option>
+      <option value="api-key">Header api-key</option>
+    </select>
+    <div class="hint">Para APIs como OpenAI, Groq, DeepSeek, OpenRouter, Mistral, etc.</div>
+    <label class="checkbox-label"><input type="checkbox" id="srvProxy"> Usar proxy CORS do servidor (relay em lama.php) — para providers que bloqueiam o preflight (ex.: senseNova)</label>
+    <label>Max Tokens</label><input type="number" id="srvMaxTokens">
+    <div class="hint">Limite de tokens na resposta. 4096 ≈ ~3 mil palavras · 8192 ≈ ~6 mil · 32768 ≈ ~24 mil</div>
+    <label>Contexto (n_ctx)</label><input type="number" id="srvNCtx">
+    <label>Máx. mensagens</label><input type="number" id="srvMaxMsgs" value="20">
+    <label>Temperature</label><input type="number" step="0.1" id="srvTemp">
+    <div class="hint">Criatividade: 0.0 = focado/ determinístico · 1.0 = criativo/ aleatório · 0.7 = recomendado</div>
+    <label>Top P</label><input type="number" step="0.05" id="srvTopP">
+    <div class="hint">Núcleo de amostragem: 1.0 = usa todas as palavras possíveis · 0.1 = usa apenas as mais prováveis</div>
+    <label>System Prompt</label><textarea id="srvSystem" rows="3"></textarea>
+    <label>Servidores de reserva (proxy/failover)</label>
+    <div id="srvFallbacks" class="orch-checkbox-list"></div>
+    <div class="hint">Se der erro neste servidor, a conversa tenta automaticamente os servidores marcados, em ordem.</div>
+  </div>
+  <div class="btn-row"><button class="btn" onclick="cancelServerModal()">Cancelar</button><button class="btn primary" onclick="saveServer()">Salvar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalExport"><div class="modal">
+  <h2>📤 Exportar Dados</h2>
+  <label>Categoria</label>
+  <div id="exportCatButtons" class="cat-grid"></div>
+  <label style="margin-top:10px">Geral</label>
+  <div class="btn-row"><button class="btn small" onclick="exportAll()">📦 Tudo (servidores, conversas, agentes...)</button></div>
+  <div class="btn-row" style="justify-content:flex-end"><button class="btn" onclick="closeModal('modalExport')">Fechar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalImport"><div class="modal">
+  <h2>📥 Importar Dados</h2>
+  <label>Categoria</label>
+  <div id="importCatButtons" class="cat-grid"></div>
+  <label style="margin-top:10px">Geral</label>
+  <div class="btn-row"><button class="btn small" onclick="closeModal('modalImport');document.getElementById('importFile').click()">📦 Tudo (backup completo)</button></div>
+  <div class="hint">Ao importar uma categoria, você escolhe entre substituir ou adicionar aos itens existentes.</div>
+  <input type="file" id="importCatFile" accept=".json" style="display:none" onchange="handleImportCat(event)">
+  <div class="btn-row" style="justify-content:flex-end"><button class="btn" onclick="closeModal('modalImport')">Fechar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalBatchServer"><div class="modal">
+  <h2>Adicionar Servidores em Lote</h2>
+  <label>URLs (separadas por vírgula)</label>
+  <textarea id="batchSrvURLs" rows="6" placeholder="http://localhost:3000, http://localhost:3001, http://localhost:3002" style="font-family:monospace"></textarea>
+  <div class="hint">Um servidor por URL. Nomes automáticos: server[1], server[2], ...</div>
+  <div class="btn-row"><button class="btn" onclick="closeModal('modalBatchServer')">Cancelar</button><button class="btn primary" id="btnSaveBatchServers" onclick="saveBatchServers()">Adicionar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalAgent"><div class="modal">
+  <h2 id="modalAgentTitle">Criar Agente</h2>
+  <label>Nome</label><input type="text" id="agentName">
+  <label>Descrição</label><input type="text" id="agentDesc">
+  <label>Emoji</label><input type="text" id="agentIcon" maxlength="4">
+  <label>System Prompt</label><textarea id="agentPrompt" rows="6"></textarea>
+  <label>Servidor</label><select id="agentServer"><option value="">— Ativo —</option></select>
+  <label>Skill</label><select id="agentSkill"><option value="">— Nenhuma —</option></select>
+  <label>Temperature</label><input type="number" step="0.1" id="agentTemp">
+  <div class="hint">Criatividade: 0.0 = focado/ determinístico · 1.0 = criativo/ aleatório · 0.7 = recomendado</div>
+  <label>Max Tokens</label><input type="number" id="agentMaxTokens">
+  <div class="hint">Limite de tokens na resposta. 4096 ≈ ~3 mil palavras · 8192 ≈ ~6 mil · 32768 ≈ ~24 mil</div>
+  <label>Top P</label><input type="number" step="0.05" id="agentTopP">
+  <div class="hint">Núcleo de amostragem: 1.0 = usa todas as palavras possíveis · 0.1 = usa apenas as mais prováveis</div>
+  <label>Máx. mensagens</label><input type="number" id="agentMaxMsgs">
+  <div class="btn-row"><button class="btn" onclick="cancelAgentModal()">Cancelar</button><button class="btn primary" onclick="saveAgent()">Salvar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalSubAgent"><div class="modal">
+  <h2 id="modalSubAgentTitle">Criar Sub-Agente</h2>
+  <label>Nome (/nome)</label><input type="text" id="subAgentName" style="font-family:monospace">
+  <label>Descrição</label><input type="text" id="subAgentDesc">
+  <label>Emoji</label><input type="text" id="subAgentIcon" maxlength="4">
+  <label>System Prompt</label><textarea id="subAgentPrompt" rows="5"></textarea>
+  <label>Servidor</label><select id="subAgentServer"><option value="">— Ativo —</option></select>
+  <label>Temperature</label><input type="number" step="0.1" id="subAgentTemp">
+  <div class="hint">Criatividade: 0.0 = focado/ determinístico · 1.0 = criativo/ aleatório · 0.7 = recomendado</div>
+  <label>Max Tokens</label><input type="number" id="subAgentMaxTokens">
+  <div class="hint">Limite de tokens na resposta. 4096 ≈ ~3 mil palavras · 8192 ≈ ~6 mil · 32768 ≈ ~24 mil</div>
+  <div class="btn-row"><button class="btn" onclick="cancelSubAgentModal()">Cancelar</button><button class="btn primary" onclick="saveSubAgent()">Salvar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalSkill"><div class="modal">
+  <h2 id="modalSkillTitle">Adicionar Skill</h2>
+  <label>Nome</label><input type="text" id="skillName">
+  <label>System Prompt</label><textarea id="skillPrompt" rows="6"></textarea>
+  <label>Temperature</label><input type="number" step="0.1" id="skillTemp">
+  <div class="hint">Criatividade: 0.0 = focado/ determinístico · 1.0 = criativo/ aleatório · 0.7 = recomendado</div>
+  <label>Emoji</label><input type="text" id="skillIcon" maxlength="4">
+  <div class="btn-row"><button class="btn" onclick="cancelSkillModal()">Cancelar</button><button class="btn primary" onclick="saveSkill()">Salvar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalMCP"><div class="modal">
+  <h2 id="modalMCPTitle">Adicionar Servidor MCP</h2>
+  <label>Nome/Apelido</label><input type="text" id="mcpName">
+  <label>URL</label><input type="text" id="mcpURL" placeholder="http://localhost:3000/mcp">
+  <label>Headers HTTP (opcional)</label>
+  <div id="mcpHeaders"></div>
+  <button class="btn small" onclick="addHeaderRow()">+ Adicionar header</button>
+  <div class="hint">Ex.: <code>Authorization: Bearer sk-...</code></div>
+  <div class="btn-row"><button class="btn" onclick="cancelMCPModal()">Cancelar</button><button class="btn primary" onclick="saveMCP()">Salvar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalEntityJSON"><div class="modal">
+  <h2 id="entityJSONTitle">Importar via JSON</h2>
+  <label>Cole o JSON:</label>
+  <textarea id="entityJSONInput" class="json-input" rows="12" placeholder='[{"name":"...","prompt":"..."}]' oninput="previewEntityJSON()"></textarea>
+  <div class="json-preview" id="entityJSONPreview"></div>
+  <div class="hint" style="margin-top:8px">Aceita array de itens, um objeto único, ou <code>{"categoria":[...]}</code>. Duplicados (mesmo nome) são ignorados.</div>
+  <div class="btn-row"><button class="btn" onclick="closeModal('modalEntityJSON')">Cancelar</button><button class="btn primary" id="btnImportEntityJSON" onclick="importEntityFromJSON()" disabled>Importar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalMCPJSON"><div class="modal">
+  <h2>Importar MCPs via JSON</h2>
+  <label>Cole o JSON:</label>
+  <textarea id="mcpJSONInput" class="json-input" rows="12" placeholder='{"mcp":{"nome":{"url":"...","headers":{}}}}' oninput="previewMCPJSON()"></textarea>
+  <div class="json-preview" id="mcpJSONPreview"></div>
+  <div class="hint" style="margin-top:8px">Formatos: <code>{"mcp":{...}}</code> · <code>{"nome":{url,...}}</code> · <code>[{name,url,...}]</code></div>
+  <div class="btn-row"><button class="btn" onclick="closeModal('modalMCPJSON')">Cancelar</button><button class="btn primary" id="btnImportMCPJSON" onclick="importMCPFromJSON()" disabled>Importar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalOrch"><div class="modal orch-modal">
+  <h2 id="modalOrchTitle">Criar Orquestrador</h2>
+  <label>Nome</label><input type="text" id="orchName">
+  <label>Descrição</label><input type="text" id="orchDesc">
+  <label>Emoji</label><input type="text" id="orchIcon" maxlength="4">
+  <label>Modo de Execução</label>
+  <select id="orchMode">
+    <option value="sequential">Sequencial — etapas uma após a outra</option>
+    <option value="parallel">Paralelo — todas as etapas ao mesmo tempo</option>
+    <option value="pipeline">Pipeline — saída de cada etapa alimenta a próxima</option>
+  </select>
+  <label>Servidor</label><select id="orchServer"><option value="">— Ativo —</option></select>
+  <label>Agente Principal</label><select id="orchAgent"><option value="">— Nenhum —</option></select>
+  <label>Skill</label><select id="orchSkill"><option value="">— Nenhuma —</option></select>
+  <label>Sub-Agentes</label>
+  <div id="orchSubAgents" class="orch-checkbox-list"></div>
+  <label>MCPs Habilitados</label>
+  <div id="orchMCPs" class="orch-checkbox-list"></div>
+  <label>System Prompt do Orquestrador</label><textarea id="orchPrompt" rows="4" placeholder="Instruções globais que o orquestrador segue..."></textarea>
+  <label>Temperature</label><input type="number" step="0.1" id="orchTemp">
+  <div class="hint">Criatividade: 0.0 = focado/ determinístico · 1.0 = criativo/ aleatório · 0.7 = recomendado</div>
+  <label>Max Tokens</label><input type="number" id="orchMaxTokens">
+  <div class="hint">Limite de tokens na resposta. 4096 ≈ ~3 mil palavras · 8192 ≈ ~6 mil · 32768 ≈ ~24 mil</div>
+  <label>Top P</label><input type="number" step="0.05" id="orchTopP">
+  <div class="hint">Núcleo de amostragem: 1.0 = usa todas as palavras possíveis · 0.1 = usa apenas as mais prováveis</div>
+  <label>Etapas (Pipeline)</label>
+  <div id="orchSteps" class="orch-steps"></div>
+  <button class="btn small" onclick="addOrchStep()" style="margin-bottom:8px">+ Adicionar etapa</button>
+  <div class="btn-row"><button class="btn" onclick="cancelOrchModal()">Cancelar</button><button class="btn primary" onclick="saveOrch()">Salvar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalWorkspace"><div class="modal ws-modal">
+  <h2>📁 Workspace — Explorador de Arquivos</h2>
+  <div class="ws-toolbar">
+    <button class="btn small" onclick="openFileExplorer()">↻ Atualizar</button>
+    <button class="btn small ws-pdf-btn" onclick="generateBookPDF()">📄 Gerar PDF do Livro</button>
+    <span class="ws-breadcrumb" id="wsBreadcrumb">/</span>
+  </div>
+  <div class="ws-container">
+    <div class="ws-tree" id="wsExplorerContent"></div>
+    <div class="ws-preview" id="wsPreviewContent"><div class="ws-empty">Selecione um arquivo para visualizar</div></div>
+  </div>
+  <div class="btn-row" style="margin-top:14px;justify-content:flex-end"><button class="btn" onclick="closeModal('modalWorkspace')">Fechar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalWeditor"><div class="modal ws-modal">
+  <h2>📝 Weditor — Explorador de Arquivos (servidor)</h2>
+  <div class="ws-toolbar">
+    <button class="btn small" onclick="openWeditorExplorer()">↻ Atualizar</button>
+    <button class="btn small" onclick="weditorNewFile()">📄 Novo arquivo</button>
+    <button class="btn small" onclick="weditorNewFolder()">📁 Nova pasta</button>
+    <span class="ws-breadcrumb" id="weBreadcrumb">/</span>
+  </div>
+  <div class="ws-container">
+    <div class="ws-tree" id="weExplorerContent"></div>
+    <div class="ws-preview" id="wePreviewContent"><div class="ws-empty">Selecione um arquivo para visualizar</div></div>
+  </div>
+  <div class="btn-row" style="margin-top:14px;justify-content:flex-end"><button class="btn" onclick="closeModal('modalWeditor')">Fechar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalMicroMCP"><div class="modal ws-modal">
+  <h2>Micro-MCP — Gestão (micro-mcp/*.php)</h2>
+  <div class="ws-toolbar"><button class="btn small" onclick="microMCPRefresh()">↻ Atualizar</button><button class="btn small primary" onclick="microMCPNew()">+ Novo micro-MCP</button></div>
+  <div id="microMCPList" class="ws-tree" style="max-height:220px;overflow:auto"></div>
+  <div class="hint">Cada arquivo deve retornar um array com <code>id</code>, <code>name</code>, <code>tools</code> (fn) e <code>call</code> (fn). Use <code>mcp-nome.php</code>.</div>
+  <div class="btn-row" style="margin-top:14px;justify-content:flex-end"><button class="btn" onclick="closeModal('modalMicroMCP')">Fechar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalMicroMCPEditor"><div class="modal" style="max-width:760px">
+  <h2 id="microMCPEditorTitle">Editar micro-MCP</h2>
+  <label>Arquivo</label>
+  <input type="text" id="microMCPFileName" placeholder="mcp-exemplo.php">
+  <label>Código PHP</label>
+  <textarea id="microMCPFileContent" style="width:100%;height:320px;font-family:monospace;font-size:12px"></textarea>
+  <div class="hint" id="microMCPEditorHint">O código deve <code>return</code> um array com <code>id</code>, <code>name</code>, <code>description</code>, <code>tools</code> (fn) e <code>call</code> (fn).</div>
+  <div class="btn-row"><button class="btn" onclick="closeModal('modalMicroMCPEditor')">Cancelar</button><button class="btn primary" onclick="microMCPSave()">Salvar</button></div>
+</div></div>
+
+<script src="lama.js"></script>
+</body>
+</html>
