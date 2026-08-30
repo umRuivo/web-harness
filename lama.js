@@ -1486,6 +1486,22 @@ async function checkMCPStatus(index){
 async function checkAllMCPStatus(){for(let i=0;i<mcps.length;i++)await checkMCPStatus(i);}
 function toggleMCPEnabled(i){mcps[i].enabled=mcps[i].enabled===false?true:false;localStorage.setItem('llama_mcps',JSON.stringify(mcps));renderMCPs();}
 
+// Seleciona/desmarca todos os MCPs (built-ins + remotos) de uma vez.
+function allMCPsEnabled(){
+  const builtins=[wcurlEnabled,wcalcEnabled,workspaceEnabled,wtimeEnabled,weditorEnabled,mmcpEnabled];
+  return builtins.every(Boolean)&&mcps.every(m=>m.enabled!==false);
+}
+function toggleAllMCPs(){
+  const enable=!allMCPsEnabled();
+  wcurlEnabled=enable;wcalcEnabled=enable;workspaceEnabled=enable;wtimeEnabled=enable;weditorEnabled=enable;mmcpEnabled=enable;
+  ['wcurl_enabled','wcalc_enabled','workspace_enabled','wtime_enabled','weditor_enabled','mmcp_enabled'].forEach(k=>localStorage.setItem(k,JSON.stringify(enable)));
+  mcps.forEach(m=>{m.enabled=enable;});
+  localStorage.setItem('llama_mcps',JSON.stringify(mcps));
+  renderMCPs();
+  const btn=document.getElementById('btnSelectAllMCPs');
+  if(btn)btn.textContent=enable?'☑ Desmarcar todos':'☑ Selecionar todos';
+}
+
 // ===== MCP RENDER =====
 function renderMCPs(){
   let html='';
@@ -1515,6 +1531,8 @@ function renderMCPs(){
     return`<div class="mcp-item"><div class="mcp-info"><span class="mcp-name">${m.name}</span><span class="mcp-url">${m.url}</span><div class="mcp-status-row">${dot}<span class="mcp-status-text ${cls}">${txt}</span></div>${toolsTxt}</div><div class="item-actions"><button class="mcp-toggle ${enabled?'enabled':'disabled'}" onclick="event.stopPropagation();toggleMCPEnabled(${i})">${enabled?'✅':'⬜'}</button><button onclick="event.stopPropagation();checkMCPStatus(${i})">🔄</button><button onclick="event.stopPropagation();editMCP(${i})">✏️</button><button onclick="event.stopPropagation();deleteMCP(${i})">🗑</button></div></div>`;
   }).join('');
   document.getElementById('mcpList').innerHTML=html;
+  const btn=document.getElementById('btnSelectAllMCPs');
+  if(btn)btn.textContent=allMCPsEnabled()?'☑ Desmarcar todos':'☑ Selecionar todos';
 }
 
 function openWcurlConfig(){

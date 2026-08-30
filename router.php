@@ -13,6 +13,12 @@ if (php_sapi_name() === 'cli-server') {
         include 'chat.php';
         return true;
     }
+
+    // Rotas de ferramentas/MCP do lama.php (by path suffix)
+    if ($path === '/tools' || strpos($path, '/tools/') === 0) {
+        include 'lama.php';
+        return true;
+    }
     
     if (file_exists(__DIR__ . $path)) {
         return false;
