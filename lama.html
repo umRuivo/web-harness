@@ -141,6 +141,7 @@
     </select>
     <div class="hint">Para APIs como OpenAI, Groq, DeepSeek, OpenRouter, Mistral, etc.</div>
     <label class="checkbox-label"><input type="checkbox" id="srvProxy"> Usar proxy CORS do servidor (relay em lama.php) — para providers que bloqueiam o preflight (ex.: senseNova)</label>
+    <label class="checkbox-label"><input type="checkbox" id="srvOllama"> Compatível com Ollama (servidor nativo, ex.: http://host:11434) — remove parâmetros não suportados (tool_choice, stream_options) e desativa tool-calling (tools), evitando erros 400 de parse</label>
     <label>Max Tokens</label><input type="number" id="srvMaxTokens">
     <div class="hint">Limite de tokens na resposta. 4096 ≈ ~3 mil palavras · 8192 ≈ ~6 mil · 32768 ≈ ~24 mil</div>
     <label>Contexto (n_ctx)</label><input type="number" id="srvNCtx">

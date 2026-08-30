@@ -1397,6 +1397,26 @@ function sanitizeToolsForOllama(tools){
     return t;
   });
 }
+// Quando o servidor é Ollama nativo (/v1/chat/completions), remove campos que
+// o Ollama não suporta e responde 400: tool_choice, stream_options e tools.
+// Tools são removidos porque o parser de tool calls do Ollama via /v1 quebra
+// com muitos modelos (ex.: Qwen3/ornith geram tool calls malformados -> 400
+// "can't find closing '}' symbol").
+function applyOllamaCompat(srv, body){
+  if(!srv?.ollama)return body;
+  if(body.tool_choice!==undefined)delete body.tool_choice;
+  if(body.stream_options!==undefined)delete body.stream_options;
+  if(body.tools!==undefined)delete body.tools;
+  return body;
+}
+// Ollama rejeita o campo reasoning_content em mensagens; remove ao montar histórico.
+function stripOllamaMessages(srv, messages){
+  if(!srv?.ollama)return messages;
+  return messages.map(m=>{
+    if(m&&m.role==='assistant'&&m.reasoning_content!==undefined){const c={...m};delete c.reasoning_content;return c;}
+    return m;
+  });
+}
 
 async function executeMCPToolByIndex(mcpIndex,toolName,args){
   if(mcpIndex===WCURL_ID)return await executeWcurl(toolName,args);
@@ -1550,6 +1570,7 @@ async function executeSubAgentTask(sa,task,taskId){
   try{
     const messages=[{role:'system',content:sa.prompt||'Execute.'},{role:'user',content:task}];
     const body={messages,stream:true};if(srv.model)body.model=srv.model;if(sa.maxTokens)body.max_tokens=sa.maxTokens;if(sa.temperature!==undefined)body.temperature=sa.temperature;
+    applyOllamaCompat(srv,body);
     const ctrl=new AbortController();const to=setTimeout(()=>ctrl.abort(),120000);
         const res=await llmChatFetch(srv, body, {signal:ctrl.signal});
     clearTimeout(to);if(!res.ok)throw new Error(`HTTP ${res.status}`);
@@ -1797,6 +1818,7 @@ async function executeOrchestrator(o,userMessage){
         if(o.temperature!==undefined)body.temperature=o.temperature;
         if(o.topP!==undefined)body.top_p=o.topP;
         if(toolsForAPI.length>0){body.tools=sanitizeToolsForOllama(toolsForAPI);body.tool_choice='auto';}
+        applyOllamaCompat(srv,body);
         const ctrl=new AbortController();const to=setTimeout(()=>ctrl.abort(),120000);
     const res=await llmChatFetch(srv, body, {signal:ctrl.signal});
         clearTimeout(to);if(!res.ok)throw new Error(`HTTP ${res.status}`);
@@ -1873,7 +1895,7 @@ function updateSkillBadge(){const b=document.getElementById('activeSkillBadge');
 function clearSkillForm(){['skillName','skillPrompt','skillTemp','skillIcon'].forEach(id=>document.getElementById(id).value='');}
 
 function updateServerSelect(){const sel=document.getElementById('activeServerSelect');sel.innerHTML='<option value="">— Nenhum —</option>'+servers.map((s,i)=>`<option value="${i}">${escapeHtml(s.name)}</option>`).join('');sel.value=activeServer!==null?String(activeServer):'';}
-function renderServers(){updateServerSelect();document.getElementById('serverList').innerHTML=servers.map((s,i)=>`<div class="server-item ${activeServer===i?'active':''}" onclick="selectServer(${i})"><div class="server-info"><span class="server-title">${s.name}${s.fallbacks&&s.fallbacks.length?` <span class="mcp-badge">🔁 ${s.fallbacks.length}</span>`:''}</span>${s.model?`<span class="server-model">${s.model}</span>`:''}</div><div class="item-actions"><button onclick="event.stopPropagation();editServer(${i})">✏️</button><button onclick="event.stopPropagation();deleteServer(${i})">🗑</button></div></div>`).join('');}
+function renderServers(){updateServerSelect();document.getElementById('serverList').innerHTML=servers.map((s,i)=>`<div class="server-item ${activeServer===i?'active':''}" onclick="selectServer(${i})"><div class="server-info"><span class="server-title">${s.name}${s.fallbacks&&s.fallbacks.length?` <span class="mcp-badge">🔁 ${s.fallbacks.length}</span>`:''}${s.ollama?' <span class="mcp-badge">🦙</span>':''}</span>${s.model?`<span class="server-model">${s.model}</span>`:''}</div><div class="item-actions"><button onclick="event.stopPropagation();editServer(${i})">✏️</button><button onclick="event.stopPropagation();deleteServer(${i})">🗑</button></div></div>`).join('');}
 function selectServer(i){if(i==null||isNaN(i)||!servers[i]){activeServer=null;document.getElementById('activeServerName').textContent='Nenhum';renderServers();return;}activeServer=i;document.getElementById('activeServerName').textContent=servers[i].name;renderServers();}
 function toggleServerAdvanced(){
   const fields=document.getElementById('serverAdvancedFields');
@@ -1892,9 +1914,9 @@ function applyServerAdvancedState(){
   toggle.classList.toggle('open',!collapsed);
 }
 function openServerModal(){applyServerAdvancedState();editingServerIndex=null;clearServerForm();populateServerFallbacks();document.getElementById('modalServerTitle').textContent='Adicionar Servidor';openModal('modalServer');}
-function editServer(i){const s=servers[i];editingServerIndex=i;applyServerAdvancedState();document.getElementById('srvName').value=s.name||'';document.getElementById('srvURL').value=s.url||'';document.getElementById('srvModel').value=s.model||'';document.getElementById('srvMaxTokens').value=s.maxTokens||'';document.getElementById('srvNCtx').value=s.nCtx||'';document.getElementById('srvMaxMsgs').value=s.maxMsgs||20;document.getElementById('srvTemp').value=s.temperature||'';document.getElementById('srvTopP').value=s.topP||'';document.getElementById('srvSystem').value=s.system||'';document.getElementById('srvApiKey').value=s.apiKey||'';document.getElementById('srvApiKey').type='password';document.getElementById('srvApiKeyType').value=s.apiKeyType||'bearer';document.getElementById('srvProxy').checked=!!(s.proxy);populateServerFallbacks();document.getElementById('modalServerTitle').textContent='Editar Servidor';openModal('modalServer');}
+function editServer(i){const s=servers[i];editingServerIndex=i;applyServerAdvancedState();document.getElementById('srvName').value=s.name||'';document.getElementById('srvURL').value=s.url||'';document.getElementById('srvModel').value=s.model||'';document.getElementById('srvMaxTokens').value=s.maxTokens||'';document.getElementById('srvNCtx').value=s.nCtx||'';document.getElementById('srvMaxMsgs').value=s.maxMsgs||20;document.getElementById('srvTemp').value=s.temperature||'';document.getElementById('srvTopP').value=s.topP||'';document.getElementById('srvSystem').value=s.system||'';document.getElementById('srvApiKey').value=s.apiKey||'';document.getElementById('srvApiKey').type='password';document.getElementById('srvApiKeyType').value=s.apiKeyType||'bearer';document.getElementById('srvProxy').checked=!!(s.proxy);document.getElementById('srvOllama').checked=!!(s.ollama);populateServerFallbacks();document.getElementById('modalServerTitle').textContent='Editar Servidor';openModal('modalServer');}
 function cancelServerModal(){editingServerIndex=null;clearServerForm();closeModal('modalServer');}
-function saveServer(){const n=document.getElementById('srvName').value.trim();const u=document.getElementById('srvURL').value.trim();if(!n||!u){alert('Obrigatório.');return;}const cleanU=u.replace(/\/+$/,'');const normUrl=u=>{const s=u||'';return s.replace(/\/+$/,'').toLowerCase();};const dup=servers.findIndex((s,i)=>i!==editingServerIndex&&normUrl(s.url)===normUrl(cleanU));if(dup!==-1){alert(`⚠ Servidor já cadastrado: "${servers[dup].name}" (${cleanU})`);return;}const apiKey=document.getElementById('srvApiKey').value.trim();const fallbacks=srvFallbackOrder.filter(i=>servers[i]&&i!==editingServerIndex);const s={name:n,url:cleanU,model:document.getElementById('srvModel').value.trim()||undefined,maxTokens:parseInt(document.getElementById('srvMaxTokens').value)||undefined,nCtx:parseInt(document.getElementById('srvNCtx').value)||undefined,maxMsgs:parseInt(document.getElementById('srvMaxMsgs').value)||20,temperature:parseFloat(document.getElementById('srvTemp').value)||undefined,topP:parseFloat(document.getElementById('srvTopP').value)||undefined,system:document.getElementById('srvSystem').value.trim()||undefined,fallbacks:fallbacks.length?fallbacks:undefined};if(apiKey){s.apiKey=apiKey;s.apiKeyType=getSrvApiKeyType();}if(document.getElementById('srvProxy').checked)s.proxy=true;if(editingServerIndex!==null&&servers[editingServerIndex])servers[editingServerIndex]=s;else servers.push(s);localStorage.setItem('llama_servers',JSON.stringify(servers));editingServerIndex=null;renderServers();closeModal('modalServer');clearServerForm();}
+function saveServer(){const n=document.getElementById('srvName').value.trim();const u=document.getElementById('srvURL').value.trim();if(!n||!u){alert('Obrigatório.');return;}const cleanU=u.replace(/\/+$/,'');const normUrl=u=>{const s=u||'';return s.replace(/\/+$/,'').toLowerCase();};const dup=servers.findIndex((s,i)=>i!==editingServerIndex&&normUrl(s.url)===normUrl(cleanU));if(dup!==-1){alert(`⚠ Servidor já cadastrado: "${servers[dup].name}" (${cleanU})`);return;}const apiKey=document.getElementById('srvApiKey').value.trim();const fallbacks=srvFallbackOrder.filter(i=>servers[i]&&i!==editingServerIndex);const s={name:n,url:cleanU,model:document.getElementById('srvModel').value.trim()||undefined,maxTokens:parseInt(document.getElementById('srvMaxTokens').value)||undefined,nCtx:parseInt(document.getElementById('srvNCtx').value)||undefined,maxMsgs:parseInt(document.getElementById('srvMaxMsgs').value)||20,temperature:parseFloat(document.getElementById('srvTemp').value)||undefined,topP:parseFloat(document.getElementById('srvTopP').value)||undefined,system:document.getElementById('srvSystem').value.trim()||undefined,fallbacks:fallbacks.length?fallbacks:undefined};if(apiKey){s.apiKey=apiKey;s.apiKeyType=getSrvApiKeyType();}if(document.getElementById('srvProxy').checked)s.proxy=true;if(document.getElementById('srvOllama').checked)s.ollama=true;if(editingServerIndex!==null&&servers[editingServerIndex])servers[editingServerIndex]=s;else servers.push(s);localStorage.setItem('llama_servers',JSON.stringify(servers));editingServerIndex=null;renderServers();closeModal('modalServer');clearServerForm();}
 async function checkServerOnline(s){
   const u=(s.url||'').replace(/\/+$/,'');
   if(!u)return false;
@@ -1938,7 +1960,7 @@ async function removeDuplicateServers(){
   alert(msg);
 }
 function deleteServer(i){if(!confirm('Remover?'))return;servers.splice(i,1);if(activeServer===i){activeServer=null;document.getElementById('activeServerName').textContent='Nenhum';}else if(activeServer>i)activeServer--;servers.forEach(s=>{if(Array.isArray(s.fallbacks))s.fallbacks=s.fallbacks.filter(f=>f!==i).map(f=>f>i?f-1:f).filter(f=>servers[f]);});localStorage.setItem('llama_servers',JSON.stringify(servers));renderServers();}
-function clearServerForm(){['srvName','srvURL','srvModel','srvMaxTokens','srvNCtx','srvTemp','srvTopP','srvSystem','srvApiKey'].forEach(id=>document.getElementById(id).value='');document.getElementById('srvMaxMsgs').value='20';document.getElementById('srvApiKeyType').value='bearer';document.getElementById('srvProxy').checked=false;document.getElementById('srvApiKey').type='password';document.getElementById('modelStatus').textContent='';hideModelSelect();}
+function clearServerForm(){['srvName','srvURL','srvModel','srvMaxTokens','srvNCtx','srvTemp','srvTopP','srvSystem','srvApiKey'].forEach(id=>document.getElementById(id).value='');document.getElementById('srvMaxMsgs').value='20';document.getElementById('srvApiKeyType').value='bearer';document.getElementById('srvProxy').checked=false;document.getElementById('srvOllama').checked=false;document.getElementById('srvApiKey').type='password';document.getElementById('modelStatus').textContent='';hideModelSelect();}
 let srvFallbackOrder=[];
 function populateServerFallbacks(){
   const box=document.getElementById('srvFallbacks');if(!box)return;
@@ -2073,7 +2095,7 @@ async function streamChatCompletion(srv, body, onDelta, signal){
     if(!choice)throw new Error('Resposta vazia: '+JSON.stringify(data).slice(0,300));
     const msg=choice.message||{};
     if(onDelta)onDelta(msg.content||'',msg.tool_calls||null);
-    return{content:msg.content||'',tool_calls:msg.tool_calls||[],usage:data.usage||null,reasoning:msg.reasoning_content||'',model:data.model||srv.model||''};
+    return{content:msg.content||'',tool_calls:msg.tool_calls||[],usage:data.usage||null,reasoning:msg.reasoning_content||msg.reasoning||'',model:data.model||srv.model||''};
   }
   const reader=res.body.getReader();
   const dec=new TextDecoder();
@@ -2098,6 +2120,7 @@ async function streamChatCompletion(srv, body, onDelta, signal){
       if(!ch)continue;
       const delta=ch.delta||{};
       if(delta.reasoning_content)reasoning+=delta.reasoning_content;
+      if(delta.reasoning)reasoning+=delta.reasoning;
       if(delta.content){content+=delta.content;if(onDelta)onDelta(delta.content,null);}
       if(delta.tool_calls){
         for(const tc of delta.tool_calls){
@@ -2197,7 +2220,10 @@ async function streamChatCompletion(srv, body, onDelta, signal){
             else messages.push({role:m.role,content:m.content});
           });
           const body={messages,stream:true};body.stream_options={include_usage:true};if(srv.model)body.model=srv.model;const mt=getActiveMaxTokens();if(mt)body.max_tokens=mt;const tp=getActiveTemperature();if(tp!==undefined)body.temperature=tp;const tpP=getActiveTopP();if(tpP!==undefined)body.top_p=tpP;
-          if(toolsForAPI.length>0){body.tools=sanitizeToolsForOllama(toolsForAPI);body.tool_choice='auto';}
+if(toolsForAPI.length>0){body.tools=sanitizeToolsForOllama(toolsForAPI);body.tool_choice='auto';}
+          applyOllamaCompat(srv,body);
+          const histMessages=stripOllamaMessages(srv,messages);
+          if(histMessages!==messages)body.messages=histMessages;
           assistantMsg.content='';
           const reqStart=performance.now();
           const result=await streamChatCompletion(srv,body,(delta)=>{

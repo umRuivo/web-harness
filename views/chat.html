@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chat Ollama</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,Arial,sans-serif;background:#e6ecf0;color:#222;display:flex;flex-direction:column;height:100vh}
+.header{background:#1c4e80;color:#fff;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 2px 4px rgba(0,0,0,.25)}
+.header h1{font-size:16px;margin-right:8px;white-space:nowrap}
+.header label{font-size:12px;opacity:.9}
+.header select{min-width:150px;max-width:260px;padding:5px 8px;border:none;border-radius:4px;font-size:13px}
+.header .btn{margin-left:auto}
+.btn{padding:6px 12px;border:none;border-radius:4px;background:#3f8f5f;color:#fff;cursor:pointer;font-size:13px}
+.btn:hover{filter:brightness(1.1)}
+.btn.secondary{background:#6c757d}
+.btn.danger{background:#c0392b}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.chat{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:78%;padding:10px 14px;border-radius:10px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word;font-size:14px}
+.msg.user{align-self:flex-end;background:#d7f0ff;border:1px solid #9cc9e8}
+.msg.assistant{align-self:flex-start;background:#fff;border:1px solid #d0d7de}
+.msg.system{align-self:center;background:#fff3cd;border:1px solid #e0c868;font-size:13px;color:#6b5900}
+.msg .role{font-size:11px;font-weight:bold;color:#1c4e80;display:block;margin-bottom:3px}
+.msg img{max-width:100%;border-radius:6px;margin-top:6px}
+.msg.error{background:#fde8e8;border:1px solid #e5a3a3;color:#8b0000}
+.cursor{display:inline-block;width:8px;height:14px;background:#1c4e80;animation:blink 1s steps(2) infinite;vertical-align:text-bottom}
+@keyframes blink{50%{opacity:0}}
+.inputbar{display:flex;gap:10px;padding:12px 16px;background:#fff;border-top:1px solid #d0d7de}
+.inputbar textarea{flex:1;resize:none;padding:10px;border:1px solid #c4ccd4;border-radius:6px;font-size:14px;font-family:inherit;min-height:44px;max-height:160px}
+.attach-preview{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 8px;background:#fff}
+.attach-preview img{width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid #ccc}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:10px;padding:20px;width:100%;max-width:440px;box-shadow:0 8px 30px rgba(0,0,0,.3)}
+.modal h2{font-size:16px;margin-bottom:12px;color:#1c4e80}
+.modal label{display:block;font-size:12px;margin:10px 0 4px;color:#555}
+.modal input[type=text]{width:100%;padding:8px;border:1px solid #c4ccd4;border-radius:5px;font-size:14px}
+.modal .btn-row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.srv-row{display:flex;align-items:center;justify-content:space-between;background:#f5f7fa;border:1px solid #e0e4e8;border-radius:6px;padding:8px 12px;margin-bottom:6px;font-size:13px}
+.srv-row .del{cursor:pointer;color:#c0392b;font-weight:bold;background:none;border:none;font-size:15px}
+.status{font-size:12px;color:#555;padding:0 16px 6px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>💬 Chat Ollama</h1>
+  <label>Servidor</label>
+  <select id="serverSelect"><option value="">— Nenhum —</option></select>
+  <button class="btn secondary" id="btnManage" onclick="openManageModal()">⚙ Gerir</button>
+  <label>Modelo</label>
+  <select id="modelSelect" disabled><option value="">— Selecione um servidor —</option></select>
+  <button class="btn" onclick="newConversation()">+ Nova conversa</button>
+</div>
+
+<div class="status" id="statusBar"></div>
+
+<div class="chat" id="chatArea"></div>
+
+<div class="attach-preview" id="attachPreview"></div>
+
+<div class="inputbar">
+  <button class="btn secondary" onclick="document.getElementById('attachInput').click()" title="Anexar imagem">📎</button>
+  <input type="file" id="attachInput" accept="image/*" style="display:none" onchange="handleAttach(event)">
+  <textarea id="userInput" rows="1" placeholder="Digite sua mensagem... (Shift+Enter para nova linha)" onkeydown="handleKey(event)"></textarea>
+  <button class="btn" id="btnStop" onclick="stopGeneration()" disabled>⏹ Parar</button>
+  <button class="btn" id="btnSend" onclick="sendMessage()">Enviar</button>
+</div>
+
+<div class="modal-overlay" id="modalManage">
+  <div class="modal">
+    <h2>⚙ Servidores</h2>
+    <div id="serverList"></div>
+    <label>Nome</label><input type="text" id="srvName" placeholder="Ollama local">
+    <label>URL</label><input type="text" id="srvURL" placeholder="http://localhost:11434">
+    <label>Modelo padrão (opcional)</label><input type="text" id="srvModel" placeholder="llama3.2">
+    <div class="btn-row">
+      <button class="btn secondary" onclick="closeManageModal()">Fechar</button>
+      <button class="btn" onclick="addServer()">+ Adicionar servidor</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let servers = [];
+let serverId = null;
+let models = [];
+let model = '';
+let messageHistory = [];
+let attachedImages = [];
+let streaming = false;
+let abortCtrl = null;
+
+const $ = id => document.getElementById(id);
+
+function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function setStatus(msg){ $('statusBar').textContent = msg || ''; }
+
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    let msg = 'HTTP ' + res.status;
+    try { const d = await res.json(); if (d.error) msg = d.error; } catch(e){}
+    throw new Error(msg);
+  }
+  return res;
+}
+
+// 1. GET /api/servers carrega servidores no <select>
+async function loadServers(){
+  try {
+    const res = await apiFetch('/api/servers');
+    const d = await res.json();
+    servers = d.servers || [];
+    const prev = serverId;
+    const sel = $('serverSelect');
+    sel.innerHTML = '<option value="">— Nenhum —</option>' + servers.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    if (prev && servers.some(s => s.id === prev)) sel.value = prev;
+    else if (servers.length === 1) sel.value = servers[0].id;
+    if (sel.value) { serverId = parseInt(sel.value); loadModels(serverId); }
+    else { serverId = null; $('modelSelect').innerHTML = '<option value="">— Selecione um servidor —</option>'; $('modelSelect').disabled = true; }
+  } catch(e){
+    setStatus('Erro ao carregar servidores: ' + e.message);
+  }
+}
+
+// 2. Ao selecionar servidor, GET /api/models/:id carrega modelos
+async function loadModels(id){
+  resetConversation();
+  $('modelSelect').innerHTML = '<option value="">Carregando modelos...</option>';
+  $('modelSelect').disabled = false;
+  const srv = servers.find(s => s.id === id);
+  try {
+    const res = await apiFetch('/api/models/' + id);
+    const d = await res.json();
+    models = d.models || [];
+    const sel = $('modelSelect');
+    sel.innerHTML = models.map(m => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('');
+    const fallback = srv && srv.model ? srv.model : null;
+    if (fallback && models.some(m => m.name === fallback)) sel.value = fallback;
+    else if (models.length) sel.value = models[0].name;
+    model = sel.value || '';
+    if (!model) setStatus('Nenhum modelo encontrado no servidor.');
+    else setStatus('Conectado a ' + srv.name + ' · modelo ' + model);
+    // 7. Ao trocar servidor/modelo, histórico é resetado
+    resetConversation();
+  } catch(e){
+    setStatus('Erro ao carregar modelos: ' + e.message);
+    $('modelSelect').innerHTML = '<option value="">— Falha —</option>';
+  }
+}
+
+function resetConversation(){
+  messageHistory = [];
+  $('chatArea').innerHTML = '<div class="msg system">Selecione um servidor e modelo, depois digite sua mensagem.</div>';
+}
+
+function newConversation(){
+  if (streaming) stopGeneration();
+  resetConversation();
+  setStatus(model ? 'Nova conversa · ' + model : '');
+}
+
+// Exibe uma mensagem e retorna o elemento criado
+function addMessage(role, content, isHtml){
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  if (role !== 'system') {
+    const roleLabel = document.createElement('span');
+    roleLabel.className = 'role';
+    roleLabel.textContent = role === 'user' ? 'Você' : 'Assistente';
+    div.appendChild(roleLabel);
+  }
+  if (isHtml) div.innerHTML = content;
+  else div.textContent = content;
+  $('chatArea').appendChild(div);
+  $('chatArea').scrollTop = $('chatArea').scrollHeight;
+  return div;
+}
+
+function addSystemMsg(text){
+  addMessage('system', text, false);
+}
+
+// 6. Histórico mantido em messageHistory[]
+function appendToHistory(role, content, images){
+  const msg = { role, content };
+  if (images && images.length) msg.images = images;
+  messageHistory.push(msg);
+}
+
+// 5. Resposta lida com ReadableStream e exibida progressivamente
+async function streamChat(){
+  const body = {
+    model,
+    messages: messageHistory,
+    stream: true
+  };
+  let res;
+  try {
+    res = await fetch('/api/chat/' + serverId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: abortCtrl.signal
+    });
+  } catch(e){
+    if (e.name === 'AbortError') { addSystemMsg('⏹ Geração interrompida.'); }
+    else addSystemMsg('Erro: ' + e.message);
+    return;
+  }
+  if (!res.ok){
+    let msg = 'HTTP ' + res.status;
+    try { const d = await res.json(); if (d.error) msg = d.error; } catch(e){}
+    addSystemMsg('Erro: ' + msg);
+    setStatus('');
+    return;
+  }
+  const el = addMessage('assistant', '');
+  el.textContent = '';
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  el.appendChild(cursor);
+  let full = '';
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line) continue;
+        let j;
+        try { j = JSON.parse(line); } catch(e){ continue; }
+        const delta = j.message && j.message.content ? j.message.content : '';
+        if (delta) full += delta;
+        el.textContent = full;
+        $('chatArea').scrollTop = $('chatArea').scrollHeight;
+        if (j.done) break;
+      }
+    }
+  } catch(e){
+    if (e.name !== 'AbortError') addSystemMsg('Erro ao ler a resposta: ' + e.message);
+  } finally {
+    if (cursor.parentNode) cursor.remove();
+    el.textContent = full;
+  }
+  if (full) appendToHistory('assistant', full);
+  setStatus('');
+}
+
+async function sendMessage(){
+  const text = $('userInput').value.trim();
+  if (!text && attachedImages.length === 0) return;
+  if (streaming) return;
+  if (!serverId) { addSystemMsg('Selecione um servidor primeiro.'); return; }
+  if (!model) { addSystemMsg('Selecione um modelo primeiro.'); return; }
+
+  appendToHistory('user', text, attachedImages);
+  const userEl = addMessage('user', text, false);
+  if (attachedImages.length) {
+    for (const img of attachedImages) {
+      const d = document.createElement('img');
+      d.src = img.dataUrl;
+      userEl.appendChild(d);
+    }
+  }
+  attachedImages = [];
+  $('attachPreview').innerHTML = '';
+  $('userInput').value = '';
+  $('userInput').style.height = 'auto';
+
+  streaming = true;
+  abortCtrl = new AbortController();
+  $('btnSend').disabled = true;
+  $('btnStop').disabled = false;
+  try {
+    await streamChat();
+  } finally {
+    streaming = false;
+    $('btnSend').disabled = false;
+    $('btnStop').disabled = true;
+    $('userInput').focus();
+  }
+}
+
+function stopGeneration(){
+  if (abortCtrl) abortCtrl.abort();
+}
+
+function handleKey(e){
+  if (e.key === 'Enter' && !e.shiftKey){
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+// ===== Imagens =====
+function handleAttach(event){
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const dataUrl = ev.target.result;
+    const base64 = dataUrl.split(',')[1];
+    attachedImages.push({ dataUrl, base64, mime: file.type });
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.title = file.name;
+    $('attachPreview').appendChild(img);
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
+// ===== Gestão de servidores =====
+function openManageModal(){
+  renderServerList();
+  $('modalManage').classList.add('open');
+}
+function closeManageModal(){
+  $('modalManage').classList.remove('open');
+}
+function renderServerList(){
+  const wrap = $('serverList');
+  if (!servers.length) { wrap.innerHTML = '<div class="srv-row">Nenhum servidor cadastrado.</div>'; return; }
+  wrap.innerHTML = servers.map(s => `
+    <div class="srv-row">
+      <div><b>${esc(s.name)}</b> · <span style="color:#666">${esc(s.url)}</span></div>
+      <button class="del" onclick="deleteServer(${s.id})" title="Remover">✕</button>
+    </div>`).join('');
+}
+async function addServer(){
+  const name = $('srvName').value.trim();
+  const url = $('srvURL').value.trim();
+  if (!name || !url) { addSystemMsg('Preencha nome e URL do servidor.'); return; }
+  const body = { name, url };
+  const mdl = $('srvModel').value.trim();
+  if (mdl) body.model = mdl;
+  try {
+    await apiFetch('/api/servers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    $('srvName').value = ''; $('srvURL').value = ''; $('srvModel').value = '';
+    await loadServers();
+    renderServerList();
+  } catch(e){
+    addSystemMsg('Erro ao adicionar servidor: ' + e.message);
+  }
+}
+async function deleteServer(id){
+  try {
+    await apiFetch('/api/servers/' + id, { method: 'DELETE' });
+    if (serverId === id) { serverId = null; resetConversation(); }
+    await loadServers();
+    renderServerList();
+  } catch(e){
+    addSystemMsg('Erro ao remover servidor: ' + e.message);
+  }
+}
+
+// Eventos
+$('serverSelect').addEventListener('change', e => {
+  serverId = e.target.value ? parseInt(e.target.value) : null;
+  if (serverId) loadModels(serverId);
+  else { resetConversation(); $('modelSelect').innerHTML = '<option value="">— Selecione um servidor —</option>'; $('modelSelect').disabled = true; }
+});
+$('modelSelect').addEventListener('change', e => {
+  model = e.target.value || '';
+  resetConversation(); // 7. trocar modelo reseta histórico
+  setStatus(model ? 'Modelo selecionado: ' + model : '');
+});
+$('userInput').addEventListener('input', e => {
+  e.target.style.height = 'auto';
+  e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+});
+
+loadServers();
+</script>
+</body>
+</html>

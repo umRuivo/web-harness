@@ -7,6 +7,12 @@ if (php_sapi_name() === 'cli-server') {
         include 'lama.php';
         return false;
     }
+
+    // Rotas do Chat Ollama (rotas_chat.md)
+    if ($path === '/chat' || strpos($path, '/api/') === 0) {
+        include 'chat.php';
+        return true;
+    }
     
     if (file_exists(__DIR__ . $path)) {
         return false;
