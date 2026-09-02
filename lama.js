@@ -2045,35 +2045,49 @@ function renderChat(){
   area.classList.toggle('cli-mode',cliMode);
   if(activeConv===null||!conversations[activeConv]){area.innerHTML=renderHomeFunctions();return;}
   const msgs=conversations[activeConv].messages;
-   area.innerHTML=msgs.map(m=>{
-     let c;let isMultimodal=false;
-     if(Array.isArray(m.content)){
-       isMultimodal=true;
-       c=m.content.map(part=>{
-         if(part.type==='text')return escapeHtml(part.text||'');
-         if(part.type==='image_url')return `<img class="msg-img" src="${escapeHtml(part.image_url&&part.image_url.url||'')}" alt="imagem">`;
-         return '';
-       }).join('<br>');
-     }else c=escapeHtml(m.content);
-     let statsHtml='';
-    if(m.role==='assistant'&&m.usage){
-      statsHtml=`<div class="msg-stats"><span class="ms-in">📥 ${m.usage.prompt_tokens} in</span><span class="ms-out">📤 ${m.usage.completion_tokens} out</span><span class="ms-speed">⚡ ${m.speed} tok/s</span><span class="ms-time">⏱ ${m.time}s</span>${m.model?`<span class="ms-model">🧠 ${escapeHtml(m.model)}</span>`:''}</div>`;
-    }
-    if(m.role==='tool-msg'&&m.full!==undefined){
-      return`<div class="msg tool-msg"><details class="tool-result"><summary>${c} <span class="tool-result-toggle">▶</span></summary><pre class="tool-result-body">${escapeHtml(m.full)}</pre></details></div>`;
-    }
-    if(m.role==='tool'){
-      return`<div class="msg tool"><details class="tool-result"><summary>🔧 Resultado da ferramenta <span class="tool-result-toggle">▶</span></summary><pre class="tool-result-body">${escapeHtml(m.content||'')}</pre></details></div>`;
-    }
-     if(!isMultimodal&&markdownEnabled&&m.role!=='system-msg'&&m.role!=='task-msg'&&m.role!=='tool-msg'&&m.role!=='tool')c=renderMarkdown(c);
-    const meta=m.role==='user'?'👤 Você':m.role==='assistant'?'🤖 Assistente':m.role==='subagent'?`${m.icon||'🤖'} ${escapeHtml(m.name||'Sub-Agente')}`:'';
-    let reasoningHtml='';
-    if(m.role==='assistant'&&m.reasoning_content){
-      reasoningHtml=`<details class="reasoning"><summary>🧠 Raciocínio</summary><div class="reasoning-body">${escapeHtml(m.reasoning_content)}</div></details>`;
-    }
-    return`<div class="msg ${m.role}">${meta?`<div class="meta">${meta}</div>`:''}${reasoningHtml}${c}${statsHtml}</div>`;
-  }).join('');
+  const parts=[];
+  let group=[];
+  const flushToolGroup=()=>{
+    if(!group.length)return;
+    const n=group.length;
+    parts.push(`<details class="tool-result tool-group"><summary>🔧 Ferramentas <span class="tool-group-count">${n} ${n===1?'chamada':'chamadas'}</span><span class="tool-result-toggle">▶</span></summary><div class="tool-group-body">${group.join('')}</div></details>`);
+    group=[];
+  };
+  for(const m of msgs){
+    if(m.role==='tool-msg'||m.role==='tool')group.push(renderSingleMsg(m));
+    else{flushToolGroup();parts.push(renderSingleMsg(m));}
+  }
+  flushToolGroup();
+  area.innerHTML=parts.join('');
   area.scrollTop=area.scrollHeight;
+}
+function renderSingleMsg(m){
+  let c;let isMultimodal=false;
+  if(Array.isArray(m.content)){
+    isMultimodal=true;
+    c=m.content.map(part=>{
+      if(part.type==='text')return escapeHtml(part.text||'');
+      if(part.type==='image_url')return `<img class="msg-img" src="${escapeHtml(part.image_url&&part.image_url.url||'')}" alt="imagem">`;
+      return '';
+    }).join('<br>');
+  }else c=escapeHtml(m.content);
+  let statsHtml='';
+  if(m.role==='assistant'&&m.usage){
+    statsHtml=`<div class="msg-stats"><span class="ms-in">📥 ${m.usage.prompt_tokens} in</span><span class="ms-out">📤 ${m.usage.completion_tokens} out</span><span class="ms-speed">⚡ ${m.speed} tok/s</span><span class="ms-time">⏱ ${m.time}s</span>${m.model?`<span class="ms-model">🧠 ${escapeHtml(m.model)}</span>`:''}</div>`;
+  }
+  if(m.role==='tool-msg'&&m.full!==undefined){
+    return`<div class="msg tool-msg"><details class="tool-result"><summary>${c} <span class="tool-result-toggle">▶</span></summary><pre class="tool-result-body">${escapeHtml(m.full)}</pre></details></div>`;
+  }
+  if(m.role==='tool'){
+    return`<div class="msg tool"><details class="tool-result"><summary>🔧 Resultado da ferramenta <span class="tool-result-toggle">▶</span></summary><pre class="tool-result-body">${escapeHtml(m.content||'')}</pre></details></div>`;
+  }
+  if(!isMultimodal&&markdownEnabled&&m.role!=='system-msg'&&m.role!=='task-msg'&&m.role!=='tool-msg'&&m.role!=='tool')c=renderMarkdown(c);
+  const meta=m.role==='user'?'👤 Você':m.role==='assistant'?'🤖 Assistente':m.role==='subagent'?`${m.icon||'🤖'} ${escapeHtml(m.name||'Sub-Agente')}`:'';
+  let reasoningHtml='';
+  if(m.role==='assistant'&&m.reasoning_content){
+    reasoningHtml=`<details class="reasoning"><summary>🧠 Raciocínio</summary><div class="reasoning-body">${escapeHtml(m.reasoning_content)}</div></details>`;
+  }
+  return`<div class="msg ${m.role}">${meta?`<div class="meta">${meta}</div>`:''}${reasoningHtml}${c}${statsHtml}</div>`;
 }
 function escapeHtml(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function renderMarkdown(t){t=t.replace(/```(\w*)\n([\s\S]*?)```/g,'<pre><code>$2</code></pre>');t=t.replace(/`([^`]+)`/g,'<code>$1</code>');t=t.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');t=t.replace(/\*(.+?)\*/g,'<em>$1</em>');return t;}
