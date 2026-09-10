@@ -16,12 +16,24 @@ Modelos de chat expostos via API costumam travar em três pontos no navegador: *
   - `Weditor` (leitura/edição de arquivos no servidor),
   - `Workspace` (listar/ler arquivos da área de trabalho),
   - `Wcalc` (cálculos),
-  - `Wcurl` (requisições HTTP).
+  - `Wcurl` (requisições HTTP),
+  - `Memória` (ler/salvar pontos importantes, compartilhar entre conversas).
 - **Orquestração** — agentes, sub-agentes, skills e orquestradores configuráveis, com temperatura e prompt próprios.
+- **Memórias persistentes** — memória global compartilhável + memória individual por conversa, em `.md`, injetadas no prompt e acessíveis ao LLM via tools.
 - **Visão multimodal** — anexe imagens; o app monta o conteúdo no formato `image_url` aceito pelos modelos.
 - **Sanitização de schema (Ollama)** — converte propriedades `type: array` em `string` e remove `items`/`prefixItems` que quebram o parser do Ollama, garantindo tool-calling funcional.
 - **Autenticação backend** — tela de login (`login.php`) com usuário e senha; o *relay* e todas as ações exigem sessão autenticada (cookie `HttpOnly` + `Secure` + `SameSite=Lax`).
 - **Logoff** — encerra a sessão no servidor e retorna à tela de login.
+
+## Memórias
+
+Pontos importantes em `.md`, salvos no `localStorage` e enviados ao LLM como bloco `# Memórias` no system prompt (vale para chat e orquestradores):
+
+- **🌐 Global** — criada na seção *Memórias*, pode ser vinculada a uma ou mais conversas (checkbox por conversa), ativada/desativada e importada/exportada via JSON.
+- **🧠 Individual** — uma por conversa, editada no botão 🧠 da conversa (com resumo automático via LLM: *✨ Resumir conversa na memória*). Badges 🧠/🌐 indicam o que está ativo.
+- **Compartilhar** — copia a memória individual de uma conversa para outra(s) (anexar ou substituir, com ou sem as 🌐 vinculadas). Vale marcar os destinos e clicar em *Compartilhar* ou *Salvar*; cada cópia vira independente e o destino recebe um recibo visível no chat.
+- **Tools do LLM** — `memory_get` (lê as ativas, identificando `[conversa #i "título"]`), `memory_append_conv`, `memory_append_global` e `memory_share_conv`, então o próprio modelo pode salvar e mover pontos importantes.
+- O estado sincroniza entre abas abertas e a persistência da cópia é verificada (falha de quota do navegador gera alerta explícito em vez de perda silenciosa).
 
 ## Arquitetura
 
@@ -64,7 +76,7 @@ A sessão é mantida em `PHP_SESSION` com cookie seguro; a senha é validada no 
 
 ## Sandbox no localStorage
 
-Todo o estado do app — servidores/configurações de LLM, skills, agentes, sub-agentes, orquestradores, conversas e estatísticas — é persistido no `localStorage` do navegador. Isso funciona como uma **sandbox client-side**: cada usuário tem seu próprio ambiente isolado, sem precisar de armazenamento no servidor nem de arquivos compartilhados.
+Todo o estado do app — servidores/configurações de LLM, skills, agentes, sub-agentes, orquestradores, conversas, memórias e estatísticas — é persistido no `localStorage` do navegador. Isso funciona como uma **sandbox client-side**: cada usuário tem seu próprio ambiente isolado, sem precisar de armazenamento no servidor nem de arquivos compartilhados.
 
 - As configurações ficam restritas ao navegador/dispositivo (e ao perfil do navegador) de quem usa.
 - É útil para criar e experimentar "arquivos" de configuração, prompts, skills e agentes no próprio navegador, sem mexer no backend — uma forma de *sandbox* leve e portátil.
