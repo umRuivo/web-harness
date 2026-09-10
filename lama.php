@@ -559,7 +559,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     // Default GET: MCP info
     if ($uriPath === '/' || ends_with($uriPath, '/lama.php')) {
         header('Content-Type: text/html; charset=utf-8');
-        readfile(__DIR__ . '/lama.html');
+        // Cache-busting automático: __LAMAJS_V__ vira o mtime de lama.js,
+        // forçando o navegador a baixar o JS novo a cada deploy/edição.
+        $html = @file_get_contents(__DIR__ . '/lama.html');
+        if ($html === false) { readfile(__DIR__ . '/lama.html'); exit; }
+        $v = (string)@filemtime(__DIR__ . '/lama.js');
+        echo str_replace('__LAMAJS_V__', $v !== '' ? $v : '1', $html);
         exit;
     }
 }

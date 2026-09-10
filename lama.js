@@ -61,6 +61,33 @@ let backgroundTasks=[],taskIdCounter=0;
 let mcpStatus={},mcpToolsCache={};
 let orchestrators=JSON.parse(localStorage.getItem('llama_orchestrators')||'[]');
 let activeOrch=null;
+// ===== MEMÓRIAS (global .md + individual por conversa) =====
+let memories=JSON.parse(localStorage.getItem('llama_memories')||'[]');
+let editingMemoryIndex=null,editingConvMemoryIndex=null;
+function saveMemories(){localStorage.setItem('llama_memories',JSON.stringify(memories));}
+function memUid(){return 'm'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function ensureConvMem(c){
+  if(!c||typeof c!=='object')return;
+  if(typeof c.memory!=='string')c.memory='';
+  if(!Array.isArray(c.memoryIds))c.memoryIds=[];
+  c.memoryIds=c.memoryIds.filter(id=>memories.some(m=>m.id===id));
+}
+conversations.forEach(ensureConvMem);
+memories.forEach(m=>{if(!m.id)m.id=memUid();if(typeof m.content!=='string')m.content='';if(typeof m.title!=='string')m.title='Memória';if(m.enabled===undefined)m.enabled=true;});
+// Sincroniza abas: se outra aba salvar conversas/memos, esta aba adota o novo
+// estado em vez de sobrescrevê-lo com dados velhos no próximo save (o que
+// apagava memórias compartilhadas — destino "dizia que estava vazia").
+window.addEventListener('storage',(e)=>{
+  try{
+    if(e.key==='llama_convs'){
+      const arr=JSON.parse(e.newValue||'[]');
+      if(Array.isArray(arr)){conversations=arr;conversations.forEach(ensureConvMem);if(activeConv!==null&&!conversations[activeConv])activeConv=null;renderConversations();renderChat();updateMemoryBadges();}
+    }else if(e.key==='llama_memories'){
+      const arr=JSON.parse(e.newValue||'[]');
+      if(Array.isArray(arr)){memories=arr;renderMemories();renderConversations();updateMemoryBadges();}
+    }
+  }catch(_){}
+});
 const DEFAULT_ORCHESTRATORS=[
   {name:'dev-completo',desc:'Pipeline completo: desenvolvimento + revisão + otimização.',icon:'🏗',serverIndex:null,skillIndex:null,agentIndex:null,subAgentIndices:[],mcpIndices:[],mode:'pipeline',systemPrompt:'Você é um orquestrador de desenvolvimento. Coordene as etapas de criação, revisão e otimização de código.',temperature:0.7,maxTokens:32768,topP:0.9,steps:[{type:'prompt',text:'Analise o pedido do usuário e planeje a implementação.'},{type:'agent',index:0,name:'gamedev'},{type:'subagent',index:0,name:'critico'}]},
   {name:'analise-full',desc:'Análise completa: coleta de dados + processamento + relatório.',icon:'📊',serverIndex:null,skillIndex:null,agentIndex:null,subAgentIndices:[],mcpIndices:[],mode:'sequential',systemPrompt:'Você é um orquestrador de análise. Coordene coleta, processamento e geração de relatórios.',temperature:0.6,maxTokens:16384,topP:0.9,steps:[{type:'prompt',text:'Defina o escopo da análise.'},{type:'subagent',index:0,name:'critico'}]},
@@ -128,10 +155,10 @@ function formatNumber(n){if(n>=1000000)return(n/1000000).toFixed(1)+'M';if(n>=10
 updateStatsDisplay();
 
 // ===== WCURL BUILT-IN COM PROXY CORS =====
-const IMPORT_CATS=[['servers','🖥 Servidores'],['conversations','💬 Conversas'],['agents','🧠 Agentes'],['subAgents','🤖 Sub-Agentes'],['skills','⚡ Skills'],['mcps','🔧 Ferramentas (MCP)'],['orchestrators','🎼 Orquestradores']];
-function catStore(){return{servers,conversations,agents,subAgents,skills,mcps,orchestrators};}
-function catStorageKey(cat){return{servers:'llama_servers',conversations:'llama_convs',agents:'llama_agents',subAgents:'llama_subagents',skills:'llama_skills',mcps:'llama_mcps',orchestrators:'llama_orchestrators'}[cat];}
-function renderAllSections(){renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();}
+const IMPORT_CATS=[['servers','🖥 Servidores'],['conversations','💬 Conversas'],['agents','🧠 Agentes'],['subAgents','🤖 Sub-Agentes'],['skills','⚡ Skills'],['mcps','🔧 Ferramentas (MCP)'],['orchestrators','🎼 Orquestradores'],['memories','🧠 Memórias']];
+function catStore(){return{servers,conversations,agents,subAgents,skills,mcps,orchestrators,memories};}
+function catStorageKey(cat){return{servers:'llama_servers',conversations:'llama_convs',agents:'llama_agents',subAgents:'llama_subagents',skills:'llama_skills',mcps:'llama_mcps',orchestrators:'llama_orchestrators',memories:'llama_memories'}[cat];}
+function renderAllSections(){renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();if(typeof renderMemories==='function')renderMemories();}
 function openExportModal(){document.getElementById('exportCatButtons').innerHTML=IMPORT_CATS.map(([cat,label])=>`<button class="btn small" onclick="exportCat('${cat}')">${label}</button>`).join('');openModal('modalExport');}
 function openImportModal(){document.getElementById('importCatButtons').innerHTML=IMPORT_CATS.map(([cat,label])=>`<button class="btn small" onclick="importCat('${cat}')">${label}</button>`).join('');openModal('modalImport');}
 function downloadJSON(data,filename){const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=filename;a.click();}
@@ -150,8 +177,9 @@ async function handleImportCat(event){
   const store=catStore();
   const replace=confirm(`${items.length} item(ns) encontrado(s) em "${cat}".\n\nOK = SUBSTITUIR os ${store[cat].length} atuais\nCancelar = ADICIONAR aos existentes`);
   store[cat]=replace?items:store[cat].concat(items);
+  if(cat==='servers')servers=store[cat];if(cat==='conversations'){conversations=store[cat];conversations.forEach(ensureConvMem);}if(cat==='agents')agents=store[cat];if(cat==='subAgents')subAgents=store[cat];if(cat==='skills')skills=store[cat];if(cat==='mcps')mcps=store[cat];if(cat==='orchestrators')orchestrators=store[cat];if(cat==='memories')memories=store[cat];
   localStorage.setItem(catStorageKey(cat),JSON.stringify(store[cat]));
-  renderAllSections();
+  renderAllSections();updateMemoryBadges();
   closeModal('modalImport');
   alert(`✓ ${items.length} item(ns) importado(s) para "${cat}".`);
   event.target.value='';
@@ -604,6 +632,135 @@ async function microMCPToggle(file){
   }catch(e){alert('Erro ao alternar: '+e.message);}
 }
 const MMCP_TEMPLATE=`<?php\ndeclare(strict_types=1);\n\nreturn [\n    'id' => 'exemplo',\n    'name' => 'Exemplo',\n    'description' => 'Descrição do micro-MCP.',\n    'tools' => function (): array {\n        return [\n            ['name' => 'hello', 'description' => 'Diz olá.', 'inputSchema' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string', 'description' => 'Nome.']]]],\n        ];\n    },\n    'call' => function (string $name, array $args): string {\n        if ($name === 'hello') {\n            return json_encode(['hello' => $args['name'] ?? 'mundo']);\n        }\n        throw new Exception("Ferramenta desconhecida: $name");\n    },\n];\n`;
+
+// ===== MEMORY BUILT-IN (global .md + individual por conversa) =====
+const MEM_ID='__memory_builtin__';
+let memoryEnabled=JSON.parse(localStorage.getItem('memory_enabled')??'true');
+function toggleMemory(){memoryEnabled=!memoryEnabled;localStorage.setItem('memory_enabled',JSON.stringify(memoryEnabled));renderMCPs();}
+const MEMORY_TOOLS=[
+  {type:'function',function:{name:'memory_get',description:'Lê as memórias ativas da conversa atual (globais selecionadas + individual). Use antes de responder quando precisar de contexto persistente.',parameters:{type:'object',properties:{},required:[]}}},
+  {type:'function',function:{name:'memory_append_conv',description:'Salva um ponto importante (1-3 frases ou bullet .md) na memória INDIVIDUAL da conversa atual.',parameters:{type:'object',properties:{point:{type:'string',description:'Ponto importante a salvar (texto/.md curto)'}},required:['point']}}},
+  {type:'function',function:{name:'memory_append_global',description:'Salva um ponto importante na memória GLOBAL (compartilhada). Informe memory_id de uma memória existente ou title para criar uma nova.',parameters:{type:'object',properties:{point:{type:'string',description:'Ponto importante a salvar'},memory_id:{type:'string',description:'ID da memória global (opcional)'},title:{type:'string',description:'Título se for criar nova memória global (opcional)'}},required:['point']}}},
+  {type:'function',function:{name:'memory_share_conv',description:'Copia a memória INDIVIDUAL da conversa atual para outra conversa (por título exato ou índice). Use mode=append (padrão, anexa) ou overwrite (substitui). Com include_globals=true, também vincula as 🌐 globais da origem no destino.',parameters:{type:'object',properties:{target:{type:'string',description:'Título exato ou índice (número) da conversa destino'},mode:{type:'string',enum:['append','overwrite'],description:'Como copiar (padrão: append)'},include_globals:{type:'boolean',description:'Se true, copia também a seleção de memórias globais'}},required:['target']}}},
+];
+function findConvByTarget(ref){
+  if(ref===undefined||ref===null||ref==='')return -1;
+  if(typeof ref==='number'&&Number.isInteger(ref)&&conversations[ref])return ref;
+  const s=String(ref).trim();
+  if(/^\d+$/.test(s)){const i=parseInt(s,10);if(conversations[i])return i;}
+  const low=s.toLowerCase();
+  const hits=[];
+  conversations.forEach((c,i)=>{if((c.title||'').toLowerCase()===low)hits.push(i);});
+  if(hits.length>1)throw new Error(`Título ambíguo: ${hits.length} conversas chamadas "${s}" (índices ${hits.join(', ')}). Use o índice.`);
+  return hits.length?hits[0]:-1;
+}
+function copyIndividualMemory(srcIdx,dstIdx,mode,includeGlobals){
+  const src=conversations[srcIdx],dst=conversations[dstIdx];
+  if(!src||!dst)throw new Error('Conversa de origem/destino inválida');
+  if(srcIdx===dstIdx)throw new Error('Origem e destino são a mesma conversa');
+  ensureConvMem(src);ensureConvMem(dst);
+  const text=(src.memory||'').trim();
+  if(!text)throw new Error(`A conversa "${src.title}" está sem memória individual para compartilhar`);
+  if(mode==='overwrite')dst.memory=text;
+  else dst.memory=(dst.memory||'').trim()?dst.memory.replace(/\s+$/,'')+`\n\n---\n# De "${src.title}"\n`+text:text;
+  if(includeGlobals)dst.memoryIds=[...new Set([...(dst.memoryIds||[]),...(src.memoryIds||[])])].filter(id=>memories.some(m=>m.id===id));
+  return dst;
+}
+// Salva e confere no localStorage se a cópia persistiu de verdade.
+// Sem isso, uma falha silenciosa (ex.: quota estourada por imagens em base64
+// nas mensagens) faria o destino "dizer que está vazia" após recarregar.
+function persistAndVerifyShare(targets){
+  try{saveConversations();}
+  catch(e){return{ok:[],failed:targets.map(t=>({i:t,why:'falha ao salvar no navegador: '+(e&&e.message||e)}))};}
+  let persisted=null;
+  try{persisted=JSON.parse(localStorage.getItem('llama_convs')||'[]');}catch(e){}
+  const ok=[],failed=[];
+  targets.forEach(t=>{
+    const want=((conversations[t]||{}).memory||'').trim();
+    const got=persisted&&persisted[t]?((persisted[t].memory)||'').trim():null;
+    if(got===null||(want&&got!==want))failed.push({i:t,why:'não persistiu no navegador (quota do localStorage estourada?)'});
+    else ok.push(t);
+  });
+  return{ok,failed};
+}
+// Rotina única de compartilhamento (modal + tool LLM): copia, deixa recibo
+// visível no chat destino, persiste com verificação e atualiza a UI.
+function doShareConvMemory(srcIdx,targets,mode,inc){
+  const done=[],errs=[];
+  targets.forEach(t=>{
+    try{
+      copyIndividualMemory(srcIdx,t,mode,inc);
+      ensureConvMem(conversations[t]);
+      conversations[t].messages.push({role:'system-msg',content:`🧠 Memória individual recebida de "${conversations[srcIdx].title}" (cópia — edições futuras não sincronizam).`});
+      done.push(t);
+    }catch(e){errs.push(`${conversations[t]?conversations[t].title:t}: ${e.message}`);}
+  });
+  if(done.length){
+    const v=persistAndVerifyShare(done);
+    v.failed.forEach(f=>{errs.push(`${conversations[f.i]?conversations[f.i].title:f.i}: ${f.why}`);});
+    renderConversations();updateMemoryBadges();renderChat();
+    return{ok:v.ok,errs};
+  }
+  renderConversations();updateMemoryBadges();
+  return{ok:[],errs};
+}
+function getConvMemoryBlock(conv){
+  if(!conv)return '';
+  ensureConvMem(conv);
+  const parts=[];
+  const sel=(conv.memoryIds||[]).map(id=>memories.find(m=>m.id===id)).filter(m=>m&&m.enabled!==false&&((m.content||'').trim()||(m.title||'').trim()));
+  sel.forEach(m=>{parts.push(`### 🌐 ${m.title||'Memória global'}\n${(m.content||'').trim()}`);});
+  const ind=(conv.memory||'').trim();
+  if(ind)parts.push(`### 🧠 Memória desta conversa\n${ind}`);
+  if(!parts.length)return '';
+  return `# Memórias (pontos importantes — respeite como contexto persistente)\n\n${parts.join('\n\n---\n\n')}`;
+}
+async function executeMemory(toolName,args){
+  const conv=(activeConv!==null&&conversations[activeConv])?conversations[activeConv]:null;
+  if(toolName==='memory_get'){
+    if(!conv)return 'Sem conversa ativa.';
+    const who=`[conversa #${activeConv} "${conv.title}"]`;
+    const b=getConvMemoryBlock(conv);
+    return b?`${who}\n${b}`:`${who} (sem memórias: nenhuma global selecionada e memória individual vazia)`;
+  }
+  if(toolName==='memory_append_conv'){
+    const p=((args&&args.point)||'').toString().trim();
+    if(!p)throw new Error('point obrigatório');
+    if(!conv)throw new Error('Sem conversa ativa');
+    ensureConvMem(conv);
+    conv.memory=((conv.memory||'').trim()?conv.memory.replace(/\s+$/,'')+'\n':'')+`- ${p.replace(/^\s*-\s*/,'')}`;
+    saveConversations();renderConversations();updateMemoryBadges();
+    return `Salvo na memória da conversa "${conv.title}": ${p}`;
+  }
+  if(toolName==='memory_append_global'){
+    const p=((args&&args.point)||'').toString().trim();
+    if(!p)throw new Error('point obrigatório');
+    let m=null;
+    if(args&&args.memory_id)m=memories.find(x=>x.id===args.memory_id);
+    if(!m&&(args&&args.title)){
+      m={id:memUid(),title:String(args.title).slice(0,60)||'Memória',content:'',enabled:true,created:new Date().toISOString(),updated:new Date().toISOString()};
+      memories.push(m);
+    }
+    if(!m)m=memories.find(x=>x.enabled!==false)||null;
+    if(!m){m={id:memUid(),title:'Geral',content:'',enabled:true,created:new Date().toISOString(),updated:new Date().toISOString()};memories.push(m);}
+    m.content=((m.content||'').trim()?m.content.replace(/\s+$/,'')+'\n':'')+`- ${p.replace(/^\s*-\s*/,'')}`;
+    m.updated=new Date().toISOString();
+    saveMemories();renderMemories();
+    if(conv){ensureConvMem(conv);if(!conv.memoryIds.includes(m.id)){conv.memoryIds.push(m.id);saveConversations();renderConversations();updateMemoryBadges();}}
+    return `Salvo na memória global "${m.title}": ${p}`;
+  }
+  if(toolName==='memory_share_conv'){
+    if(activeConv===null||!conversations[activeConv])throw new Error('Sem conversa ativa (origem)');
+    const di=findConvByTarget(args&&args.target);
+    if(di<0)throw new Error(`Destino não encontrado: "${args&&args.target}". Use o título exato ou o índice. Conversas: ${conversations.map((c,i)=>`${i}="${c.title}"`).join(', ')||'(nenhuma)'}`);
+    const mode=(args&&args.mode)==='overwrite'?'overwrite':'append';
+    const inc=!!(args&&args.include_globals);
+    const r=doShareConvMemory(activeConv,[di],mode,inc);
+    if(!r.ok.length)throw new Error('Falha ao compartilhar: '+r.errs.join('; '));
+    return `Memória individual de "${conversations[activeConv].title}" copiada para "${conversations[di].title}" (modo: ${mode}${inc?', +globais':''}). Persistência verificada no destino.`+(r.errs.length?` Avisos: ${r.errs.join('; ')}`:'');
+  }
+  throw new Error(`Tool desconhecida: ${toolName}`);
+}
 
 // ===== WORKSPACE BUILT-IN (arquivos no localStorage) =====
 const WS_ID='__workspace_builtin__';
@@ -1190,14 +1347,19 @@ const JSON_CAT_CFG={
     fmt:s=>`${s.icon||''} ${s.name}`},
   orchestrators:{label:'Orquestrador',list:()=>orchestrators,key:'llama_orchestrators',render:renderOrchestrators,
     norm:d=>({name:d.name||d.nome,desc:d.desc||d.description||undefined,icon:d.icon||'🔗',mode:d.mode||'sequential',serverIndex:d.serverIndex??null,agentIndex:d.agentIndex??null,skillIndex:d.skillIndex??null,subAgentIndices:Array.isArray(d.subAgentIndices)?d.subAgentIndices:[],mcpIndices:Array.isArray(d.mcpIndices)?d.mcpIndices:[],systemPrompt:d.systemPrompt||d.prompt||undefined,temperature:d.temperature!==undefined?parseFloat(d.temperature):undefined,maxTokens:d.max_tokens||d.maxTokens?parseInt(d.max_tokens||d.maxTokens):undefined,topP:d.top_p!==undefined||d.topP!==undefined?parseFloat(d.top_p??d.topP):undefined,steps:Array.isArray(d.steps)?d.steps:[]}),
-    fmt:o=>`${o.icon||''} ${o.name} [${o.mode}]`}
+    fmt:o=>`${o.icon||''} ${o.name} [${o.mode}]`},
+  memories:{label:'Memória',list:()=>memories,key:'llama_memories',render:renderMemories,
+    norm:d=>({id:d.id||memUid(),title:d.title||d.name||d.nome||'Memória',content:d.content||d.prompt||d.text||'',enabled:d.enabled!==false,created:d.created||new Date().toISOString(),updated:new Date().toISOString()}),
+    fmt:m=>`🌐 ${m.title} — ${(m.content||'').substring(0,50)}`}
 };
 let entityJSONCat=null;
 function openEntityJSONModal(cat){if(!JSON_CAT_CFG[cat])return;entityJSONCat=cat;document.getElementById('entityJSONTitle').textContent=`Importar ${JSON_CAT_CFG[cat].label}(s) via JSON`;document.getElementById('entityJSONInput').value='';document.getElementById('entityJSONPreview').innerHTML='';document.getElementById('entityJSONPreview').classList.remove('visible');document.getElementById('btnImportEntityJSON').disabled=true;openModal('modalEntityJSON');}
 function parseEntityJSON(raw,cfg){const data=JSON.parse(raw);let items=[];if(Array.isArray(data))items=data;else if(data&&typeof data==='object'){for(const v of Object.values(data)){if(Array.isArray(v)){items=v;break;}}if(!items.length)items=[data];}
-  return items.filter(i=>i&&typeof i==='object').map(cfg.norm).filter(i=>i.name&&(!('prompt'in i)||i.prompt));}
-function previewEntityJSON(){const raw=document.getElementById('entityJSONInput').value.trim();const preview=document.getElementById('entityJSONPreview');const btn=document.getElementById('btnImportEntityJSON');if(!raw){preview.classList.remove('visible');btn.disabled=true;return;}try{const cfg=JSON_CAT_CFG[entityJSONCat];const parsed=parseEntityJSON(raw,cfg);if(!parsed.length)throw new Error('Nenhum item válido (precisa de "name" e "prompt").');preview.innerHTML=`<strong>${parsed.length} ${cfg.label}(s):</strong><br>`+parsed.map(a=>`<span class="ok">✓</span> ${escapeHtml(cfg.fmt(a))}`).join('<br>');preview.classList.add('visible');btn.disabled=false;}catch(e){preview.innerHTML=`<span class="err">✗ ${e.message}</span>`;preview.classList.add('visible');btn.disabled=true;}}
-function importEntityFromJSON(){const raw=document.getElementById('entityJSONInput').value.trim();try{const cfg=JSON_CAT_CFG[entityJSONCat];if(!cfg)return;const parsed=parseEntityJSON(raw,cfg);if(!parsed.length){alert('Nenhum item válido.');return;}const list=cfg.list();let added=0,skipped=0;for(const d of parsed){if(list.find(x=>x.name.toLowerCase()===d.name.toLowerCase())){skipped++;continue;}list.push(d);added++;}localStorage.setItem(cfg.key,JSON.stringify(list));cfg.render();closeModal('modalEntityJSON');alert(`✓ ${added} ${cfg.label.toLowerCase()}(s) importado(s).${skipped?` ${skipped} duplicado(s) ignorado(s).`:''}`);}catch(e){alert('Erro: '+e.message);}}
+  const normed=items.filter(i=>i&&typeof i==='object').map(cfg.norm);
+  if(entityJSONCat==='memories')return normed.filter(i=>i.title);
+  return normed.filter(i=>i.name&&(!('prompt'in i)||i.prompt));}
+function previewEntityJSON(){const raw=document.getElementById('entityJSONInput').value.trim();const preview=document.getElementById('entityJSONPreview');const btn=document.getElementById('btnImportEntityJSON');if(!raw){preview.classList.remove('visible');btn.disabled=true;return;}try{const cfg=JSON_CAT_CFG[entityJSONCat];const parsed=parseEntityJSON(raw,cfg);if(!parsed.length)throw new Error(entityJSONCat==='memories'?'Nenhum item válido (precisa de "title").':'Nenhum item válido (precisa de "name" e "prompt").');preview.innerHTML=`<strong>${parsed.length} ${cfg.label}(s):</strong><br>`+parsed.map(a=>`<span class="ok">✓</span> ${escapeHtml(cfg.fmt(a))}`).join('<br>');preview.classList.add('visible');btn.disabled=false;}catch(e){preview.innerHTML=`<span class="err">✗ ${e.message}</span>`;preview.classList.add('visible');btn.disabled=true;}}
+function importEntityFromJSON(){const raw=document.getElementById('entityJSONInput').value.trim();try{const cfg=JSON_CAT_CFG[entityJSONCat];if(!cfg)return;const parsed=parseEntityJSON(raw,cfg);if(!parsed.length){alert('Nenhum item válido.');return;}const list=cfg.list();let added=0,skipped=0;for(const d of parsed){const dupKey=(d.title||d.name||'').toLowerCase();if(dupKey&&list.find(x=>((x.title||x.name||'').toLowerCase())===dupKey)){skipped++;continue;}list.push(d);added++;}localStorage.setItem(cfg.key,JSON.stringify(list));cfg.render();closeModal('modalEntityJSON');alert(`✓ ${added} ${cfg.label.toLowerCase()}(s) importado(s).${skipped?` ${skipped} duplicado(s) ignorado(s).`:''}`);}catch(e){alert('Erro: '+e.message);}}
 async function executeWcurl(toolName,args){
   switch(toolName){
     case 'wcurl':return await wcurlFetch(args);
@@ -1318,7 +1480,7 @@ function renderHomeFunctions(){
 }
 
 // ===== INIT =====
-renderServers();renderConversations();renderChat();renderMCPs();renderSkills();renderAgents();renderSubAgents();renderOrchestrators();
+renderServers();renderConversations();renderChat();renderMCPs();renderSkills();renderAgents();renderSubAgents();renderOrchestrators();renderMemories();updateMemoryBadges();
 checkAllMCPStatus();
 refreshMicroMCPTools();
 
@@ -1338,6 +1500,7 @@ function applySectionStates(){
     subAgentSection:'llama_subagents_collapsed',
     skillSection:'llama_skills_collapsed',
     mcpSection:'llama_mcps_collapsed',
+    memSection:'llama_mems_collapsed',
     orchSection:'llama_orchs_collapsed'
   };
   for(const[id,key]of Object.entries(map)){
@@ -1358,6 +1521,7 @@ function stopSpeedTracking(ft){if(speedInterval){clearInterval(speedInterval);sp
 // ===== MCP TOOLS =====
 function getActiveMCPTools(){
   let allTools=[];
+  if(memoryEnabled)allTools=allTools.concat(MEMORY_TOOLS.map(t=>({...t,_mcpIndex:MEM_ID})));
   if(wcurlEnabled)allTools=allTools.concat(WCURL_TOOLS.map(t=>({...t,_mcpIndex:WCURL_ID})));
   if(wcalcEnabled)allTools=allTools.concat(WCALC_TOOLS.map(t=>({...t,_mcpIndex:WCALC_ID})));
   if(workspaceEnabled)allTools=allTools.concat(WORKSPACE_TOOLS.map(t=>({...t,_mcpIndex:WS_ID})));
@@ -1419,6 +1583,7 @@ function stripOllamaMessages(srv, messages){
 }
 
 async function executeMCPToolByIndex(mcpIndex,toolName,args){
+  if(mcpIndex===MEM_ID)return await executeMemory(toolName,args);
   if(mcpIndex===WCURL_ID)return await executeWcurl(toolName,args);
   if(mcpIndex===WCALC_ID)return await executeWcalc(toolName,args);
   if(mcpIndex===WS_ID)return await executeWorkspace(toolName,args);
@@ -1488,13 +1653,13 @@ function toggleMCPEnabled(i){mcps[i].enabled=mcps[i].enabled===false?true:false;
 
 // Seleciona/desmarca todos os MCPs (built-ins + remotos) de uma vez.
 function allMCPsEnabled(){
-  const builtins=[wcurlEnabled,wcalcEnabled,workspaceEnabled,wtimeEnabled,weditorEnabled,mmcpEnabled];
+  const builtins=[memoryEnabled,wcurlEnabled,wcalcEnabled,workspaceEnabled,wtimeEnabled,weditorEnabled,mmcpEnabled];
   return builtins.every(Boolean)&&mcps.every(m=>m.enabled!==false);
 }
 function toggleAllMCPs(){
   const enable=!allMCPsEnabled();
-  wcurlEnabled=enable;wcalcEnabled=enable;workspaceEnabled=enable;wtimeEnabled=enable;weditorEnabled=enable;mmcpEnabled=enable;
-  ['wcurl_enabled','wcalc_enabled','workspace_enabled','wtime_enabled','weditor_enabled','mmcp_enabled'].forEach(k=>localStorage.setItem(k,JSON.stringify(enable)));
+  memoryEnabled=enable;wcurlEnabled=enable;wcalcEnabled=enable;workspaceEnabled=enable;wtimeEnabled=enable;weditorEnabled=enable;mmcpEnabled=enable;
+  ['memory_enabled','wcurl_enabled','wcalc_enabled','workspace_enabled','wtime_enabled','weditor_enabled','mmcp_enabled'].forEach(k=>localStorage.setItem(k,JSON.stringify(enable)));
   mcps.forEach(m=>{m.enabled=enable;});
   localStorage.setItem('llama_mcps',JSON.stringify(mcps));
   renderMCPs();
@@ -1505,6 +1670,8 @@ function toggleAllMCPs(){
 // ===== MCP RENDER =====
 function renderMCPs(){
   let html='';
+  const mems=memoryEnabled?'online':'offline';
+  html+=`<div class="mcp-item builtin"><div class="mcp-info"><span class="mcp-name">🧠 Memória <span class="mcp-badge">built-in</span></span><span class="mcp-url">global .md + individual por conversa · ${memories.length} global(is)</span><div class="mcp-status-row"><span class="mcp-status-dot ${mems}"></span><span class="mcp-status-text ${memoryEnabled?'online':'offline'}">${memoryEnabled?'Ativo':'Desativado'}</span></div><span class="mcp-tools-count">🔧 3 ferramentas · get + append</span></div><div class="item-actions"><button class="mcp-toggle ${memoryEnabled?'enabled':'disabled'}" onclick="toggleMemory()">${memoryEnabled?'✅':'⬜'}</button></div></div>`;
   const ws=wcurlEnabled?'online':'offline';
   const proxyLabel=wcurlProxy==='auto'?'auto-proxy':wcurlProxy==='direct'?'direto':'custom';
   html+=`<div class="mcp-item builtin"><div class="mcp-info"><span class="mcp-name">🌐 Wcurl <span class="mcp-badge">built-in</span></span><span class="mcp-url">fetch() + fallback CORS [${proxyLabel}]</span><div class="mcp-status-row"><span class="mcp-status-dot ${ws}"></span><span class="mcp-status-text ${wcurlEnabled?'online':'offline'}">${wcurlEnabled?'Ativo':'Desativado'}</span></div><span class="mcp-tools-count">🔧 3 ferramentas · 4 proxies CORS</span></div><div class="item-actions"><button class="mcp-toggle ${wcurlEnabled?'enabled':'disabled'}" onclick="toggleWcurl()">${wcurlEnabled?'✅':'⬜'}</button><button onclick="openWcurlConfig()" title="Configurar proxy">⚙️</button></div></div>`;
@@ -1818,6 +1985,8 @@ async function executeOrchestrator(o,userMessage){
 
   async function runStep(step,prevResult){
     let prompt=systemPrompt+'\n\n';
+    const memB=getConvMemoryBlock(conv);
+    if(memoryEnabled&&memB)prompt+=memB+'\n\n';
     if(prevResult)prompt+=`Resultado da etapa anterior:\n${prevResult}\n\n`;
     prompt+=`Pedido do usuário: ${userMessage}`;
     if(step.type==='prompt')prompt+='\n\n'+(step.text||'');
@@ -1885,7 +2054,7 @@ async function executeOrchestrator(o,userMessage){
   saveConversations();renderChat();
 }
 
-function clearAll(){if(!confirm('⚠️ Apagar TUDO?'))return;servers=[];conversations=[];skills=[];agents=[];subAgents=[];mcps=[];orchestrators=[];mcpStatus={};mcpToolsCache={};mmcpToolsCache=[];activeServer=null;activeConv=null;activeSkill=null;activeAgent=null;activeOrch=null;backgroundTasks=[];stats={inputTokens:0,outputTokens:0,totalTime:0,requests:0};['llama_servers','llama_convs','llama_skills','llama_agents','llama_subagents','llama_mcps','llama_stats','llama_workspace_files','llama_orchestrators','mmcp_enabled'].forEach(k=>localStorage.removeItem(k));document.getElementById('activeServerName').textContent='Nenhum';document.getElementById('activeSkillBadge').style.display='none';document.getElementById('activeAgentBadge').style.display='none';renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderChat();renderTasks();updateStatsDisplay();}
+function clearAll(){if(!confirm('⚠️ Apagar TUDO?'))return;servers=[];conversations=[];skills=[];agents=[];subAgents=[];mcps=[];orchestrators=[];memories=[];mcpStatus={};mcpToolsCache={};mmcpToolsCache=[];activeServer=null;activeConv=null;activeSkill=null;activeAgent=null;activeOrch=null;backgroundTasks=[];stats={inputTokens:0,outputTokens:0,totalTime:0,requests:0};['llama_servers','llama_convs','llama_skills','llama_agents','llama_subagents','llama_mcps','llama_stats','llama_workspace_files','llama_orchestrators','llama_memories','mmcp_enabled'].forEach(k=>localStorage.removeItem(k));document.getElementById('activeServerName').textContent='Nenhum';document.getElementById('activeSkillBadge').style.display='none';document.getElementById('activeAgentBadge').style.display='none';renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderMemories();updateMemoryBadges();renderChat();renderTasks();updateStatsDisplay();}
 async function logoff(){
   if(abortController)try{abortController.abort();}catch(e){}
   activeServer=null;activeConv=null;activeSkill=null;activeAgent=null;activeOrch=null;
@@ -1895,9 +2064,11 @@ async function logoff(){
   document.getElementById('activeSkillBadge').style.display='none';
   document.getElementById('activeAgentBadge').style.display='none';
   document.getElementById('activeOrchBadge').style.display='none';
+  if(document.getElementById('activeMemBadge'))document.getElementById('activeMemBadge').style.display='none';
+  if(document.getElementById('activeGlobalMemBadge'))document.getElementById('activeGlobalMemBadge').style.display='none';
   document.getElementById('userInput').value='';
   stats={inputTokens:0,outputTokens:0,totalTime:0,requests:0};localStorage.setItem('llama_stats',JSON.stringify(stats));updateStatsDisplay();
-  renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderChat();renderTasks();
+  renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderMemories();updateMemoryBadges();renderChat();renderTasks();
   try{ await fetch(location.pathname+(location.search?'&':'?')+'action=logout',{method:'POST'}); }catch(e){}
   location.href=location.pathname+location.search;
 }
@@ -2023,7 +2194,7 @@ async function autoFillModel(){const u=document.getElementById('srvURL').value.t
 
 function openBatchServerModal(){document.getElementById('batchSrvURLs').value='';openModal('modalBatchServer');}
 async function saveBatchServers(){const raw=document.getElementById('batchSrvURLs').value.trim();if(!raw){alert('Informe ao menos uma URL.');return;}const normUrl=u=>(u||'').replace(/\/+$/,'').toLowerCase();const urls=raw.split(/[,\n;]+/).map(s=>s.trim()).filter(Boolean);if(!urls.length){alert('Informe ao menos uma URL.');return;}const btn=document.getElementById('btnSaveBatchServers');btn.disabled=true;let added=0;for(let i=0;i<urls.length;i++){const cleanU=urls[i].replace(/\/+$/,'');if(!cleanU)continue;if(servers.some(s=>normUrl(s.url)===normUrl(cleanU))){continue;}const s={name:`server[${added+1}]`,url:cleanU,maxMsgs:20};try{const d=await fetchJSONWithCORFallback(`${cleanU}/v1/models`,{},4000);if(d.data?.[0]?.id)s.model=d.data[0].id;}catch(e){}servers.push(s);added++;}localStorage.setItem('llama_servers',JSON.stringify(servers));renderServers();closeModal('modalBatchServer');btn.disabled=false;if(added)alert(`✓ ${added} servidor(es) adicionado(s).`);}
-function renderConversations(){document.getElementById('convList').innerHTML=conversations.map((c,i)=>`<div class="conv-item ${activeConv===i?'active':''}" onclick="selectConv(${i})"><span>${escapeHtml(c.title)}</span><div class="item-actions"><button title="Renomear" onclick="event.stopPropagation();renameConv(${i})">✏️</button><button title="Editar título e limpar" onclick="event.stopPropagation();editConv(${i})">🛠</button><button onclick="event.stopPropagation();deleteConv(${i})">🗑</button></div></div>`).join('');}
+function renderConversations(){document.getElementById('convList').innerHTML=conversations.map((c,i)=>{ensureConvMem(c);const nG=(c.memoryIds||[]).length;const hasInd=(c.memory||'').trim().length>0;const badges=[];if(hasInd)badges.push('<span class="mem-badge" title="Memória individual">🧠</span>');if(nG)badges.push(`<span class="mem-badge" title="${nG} memória(s) global(is)">🌐${nG}</span>`);return `<div class="conv-item ${activeConv===i?'active':''}" onclick="selectConv(${i})"><span>${escapeHtml(c.title)} ${badges.join('')}</span><div class="item-actions"><button title="Memória da conversa (individual + globais)" onclick="event.stopPropagation();openConvMemoryModal(${i})">🧠</button><button title="Renomear" onclick="event.stopPropagation();renameConv(${i})">✏️</button><button title="Editar título e limpar" onclick="event.stopPropagation();editConv(${i})">🛠</button><button onclick="event.stopPropagation();deleteConv(${i})">🗑</button></div></div>`;}).join('');}
 function renameConv(i){let t=prompt('Novo nome da conversa:',conversations[i].title);if(t===null)return;t=t.trim();if(!t)return;conversations[i].title=t;saveConversations();renderConversations();}
 function editConv(i){
   const c=conversations[i];
@@ -2036,9 +2207,117 @@ function editConv(i){
   saveConversations();renderConversations();
   if(activeConv===i)renderChat();
 }
-function newConversation(){conversations.push({title:`Conversa ${conversations.length+1}`,messages:[]});activeConv=conversations.length-1;localStorage.setItem('llama_convs',JSON.stringify(conversations));renderConversations();renderChat();}
-function selectConv(i){activeConv=i;renderConversations();renderChat();}
-function deleteConv(i){if(!confirm('Remover?'))return;conversations.splice(i,1);if(activeConv===i)activeConv=null;else if(activeConv>i)activeConv--;localStorage.setItem('llama_convs',JSON.stringify(conversations));renderConversations();renderChat();}
+function newConversation(){const ids=memories.filter(m=>m.enabled!==false).map(m=>m.id);conversations.push({title:`Conversa ${conversations.length+1}`,messages:[],memory:'',memoryIds:ids});activeConv=conversations.length-1;localStorage.setItem('llama_convs',JSON.stringify(conversations));renderConversations();renderChat();updateMemoryBadges();}
+function selectConv(i){activeConv=i;const c=conversations[i];if(c)ensureConvMem(c);renderConversations();renderChat();updateMemoryBadges();}
+function deleteConv(i){if(!confirm('Remover?'))return;conversations.splice(i,1);if(activeConv===i)activeConv=null;else if(activeConv>i)activeConv--;localStorage.setItem('llama_convs',JSON.stringify(conversations));renderConversations();renderChat();updateMemoryBadges();}
+
+// ===== MEMÓRIAS — UI =====
+function renderMemories(){
+  const el=document.getElementById('memList');if(!el)return;
+  if(!memories.length){el.innerHTML='<div class="ws-empty" style="padding:8px">Nenhuma memória global. Crie uma para compartilhar entre conversas.</div>';return;}
+  el.innerHTML=memories.map((m,i)=>{
+    const on=m.enabled!==false;
+    const used=conversations.filter(c=>(c.memoryIds||[]).includes(m.id)).length;
+    return `<div class="mem-item ${on?'':'off'}" style="${on?'':'opacity:.6'}"><div class="mem-info" onclick="editMemory(${i})"><span class="mem-name">🌐 ${escapeHtml(m.title||'Memória')}</span><span class="mem-preview">${escapeHtml((m.content||'').replace(/\s+/g,' ').slice(0,70))||'(vazia)'}${used?` · 👥 ${used} conv(s)`:''}</span></div><div class="item-actions"><button title="${on?'Desativar globalmente':'Ativar'}" onclick="toggleMemoryEnabled(${i})">${on?'✅':'⬜'}</button><button onclick="editMemory(${i})">✏️</button><button onclick="deleteMemory(${i})">🗑</button></div></div>`;
+  }).join('');
+}
+function openMemoryModal(){editingMemoryIndex=null;delete document.getElementById('modalMemory').dataset.editId;document.getElementById('modalMemoryTitle').textContent='Nova memória global';document.getElementById('memTitle').value='';document.getElementById('memContent').value='';openModal('modalMemory');}
+function editMemory(i){editingMemoryIndex=i;const m=memories[i];if(!m)return;document.getElementById('modalMemory').dataset.editId=m.id;document.getElementById('modalMemoryTitle').textContent='Editar memória global';document.getElementById('memTitle').value=m.title||'';document.getElementById('memContent').value=m.content||'';openModal('modalMemory');}
+function cancelMemoryModal(){editingMemoryIndex=null;delete document.getElementById('modalMemory').dataset.editId;closeModal('modalMemory');}
+function saveMemory(){
+  const modal=document.getElementById('modalMemory');
+  if(!modal.classList.contains('open'))return; // ignora clique/duplo-clique com a modal já fechada
+  const t=document.getElementById('memTitle').value.trim()||'Memória';
+  const c=document.getElementById('memContent').value;
+  // Por ID (estável), não por índice (frágil a reordenações/exclusões em outra aba).
+  const id=modal.dataset.editId||null;
+  const idx=id?memories.findIndex(m=>m.id===id):-1;
+  if(idx>=0){memories[idx].title=t;memories[idx].content=c;memories[idx].updated=new Date().toISOString();}
+  else memories.push({id:memUid(),title:t,content:c,enabled:true,created:new Date().toISOString(),updated:new Date().toISOString()});
+  saveMemories();
+  editingMemoryIndex=null;delete modal.dataset.editId;
+  document.getElementById('memTitle').value='';document.getElementById('memContent').value='';
+  renderMemories();renderConversations();closeModal('modalMemory');
+}
+function deleteMemory(i){if(!confirm(`Excluir memória global "${memories[i].title}"? As conversas deixarão de usá-la.`))return;const id=memories[i].id;memories.splice(i,1);conversations.forEach(c=>{ensureConvMem(c);c.memoryIds=c.memoryIds.filter(x=>x!==id);});saveMemories();saveConversations();renderMemories();renderConversations();updateMemoryBadges();}
+function toggleMemoryEnabled(i){memories[i].enabled=memories[i].enabled===false?true:false;memories[i].updated=new Date().toISOString();saveMemories();renderMemories();}
+function updateMemoryBadges(){
+  const bI=document.getElementById('activeMemBadge'),bG=document.getElementById('activeGlobalMemBadge');
+  const c=(activeConv!==null&&conversations[activeConv])?conversations[activeConv]:null;
+  if(c)ensureConvMem(c);
+  if(bI){if(c&&(c.memory||'').trim()){bI.textContent='🧠';bI.title='Memória individual desta conversa';bI.style.display='inline';}else bI.style.display='none';}
+  if(bG){const n=c?(c.memoryIds||[]).filter(id=>{const m=memories.find(x=>x.id===id);return m&&m.enabled!==false;}).length:0;if(n){bG.textContent=`🌐${n}`;bG.title=`${n} memória(s) global(is) ativa(s)`;bG.style.display='inline';}else bG.style.display='none';}
+}
+function openConvMemoryModal(i){
+  editingConvMemoryIndex=i;const c=conversations[i];if(!c)return;ensureConvMem(c);
+  document.getElementById('convMemTitle').textContent=`🧠 Memória — ${c.title}`;
+  document.getElementById('convMemIndividual').value=c.memory||'';
+  const box=document.getElementById('convMemGlobals');
+  box.innerHTML=memories.length?memories.map(m=>`<label style="font-weight:normal"><input type="checkbox" value="${m.id}" ${c.memoryIds.includes(m.id)?'checked':''} ${m.enabled===false?'disabled':''}> 🌐 ${escapeHtml(m.title||'Memória')}${m.enabled===false?' (desativada)':''}</label>`).join(''):'<span class="hint">Nenhuma memória global. Crie uma na seção Memórias.</span>';
+  const share=document.getElementById('convMemShareList');
+  if(share){
+    const others=conversations.map((o,j)=>({o,j})).filter(x=>x.j!==i);
+    share.innerHTML=others.length?others.map(({o,j})=>{const has=(o.memory||'').trim().length>0;return `<label style="font-weight:normal"><input type="checkbox" value="${j}"> #${j} ${escapeHtml(o.title)}${has?' 🧠':''}${j===activeConv?' (ativa)':''}</label>`;}).join(''):'<span class="hint">Nenhuma outra conversa para compartilhar.</span>';
+  }
+  openModal('modalConvMemory');
+}
+function readConvShareForm(srcIdx){
+  const box=document.getElementById('convMemShareList');
+  const targets=box?[...box.querySelectorAll('input[type="checkbox"]:checked')].map(cb=>parseInt(cb.value,10)).filter(n=>Number.isInteger(n)&&conversations[n]&&n!==srcIdx):[];
+  const mode=(document.getElementById('convMemShareMode')||{}).value==='overwrite'?'overwrite':'append';
+  const inc=!!document.getElementById('convMemShareGlobals')?.checked;
+  return{targets,mode,inc};
+}
+function shareConvMemoryFromModal(){
+  const src=conversations[editingConvMemoryIndex];
+  if(!src){alert('Nenhuma conversa de origem.');return;}
+  try{
+    const ta=document.getElementById('convMemIndividual');
+    src.memory=ta?ta.value:src.memory;
+    const{targets,mode,inc}=readConvShareForm(editingConvMemoryIndex);
+    if(!targets.length){alert('Marque ao menos uma conversa destino.');return;}
+    const r=doShareConvMemory(editingConvMemoryIndex,targets,mode,inc);
+    openConvMemoryModal(editingConvMemoryIndex);
+    alert((r.ok.length?`✓ Compartilhado com: ${r.ok.map(t=>conversations[t].title).join(', ')} (modo: ${mode}${inc?', +globais':''}). Persistência verificada — abra o 🧠 da conversa destino para conferir.`:'Nada compartilhado.')+(r.errs.length?`\n✗ ${r.errs.join('\n')}`:''));
+  }catch(e){alert('✗ Falha ao compartilhar: '+(e&&e.message||e));}
+}
+function saveConvMemory(){
+  const c=conversations[editingConvMemoryIndex];if(!c){closeModal('modalConvMemory');return;}
+  try{
+    c.memory=document.getElementById('convMemIndividual').value;
+    // Só reescreve os vínculos globais se a lista foi renderizada (evita
+    // desvincular tudo quando as globais ainda não carregaram na modal).
+    if(memories.length||document.querySelectorAll('#convMemGlobals input[type="checkbox"]').length)
+      c.memoryIds=[...document.querySelectorAll('#convMemGlobals input[type="checkbox"]:checked')].map(cb=>cb.value);
+    // Salvar com destinos marcados também compartilha (a lista de
+    // compartilhamento é uma ação, não um estado — por isso reabre desmarcada).
+    const srcIdx=editingConvMemoryIndex;
+    const{targets,mode,inc}=readConvShareForm(srcIdx);
+    saveConversations();editingConvMemoryIndex=null;renderConversations();updateMemoryBadges();closeModal('modalConvMemory');
+    if(targets.length){
+      const r=doShareConvMemory(srcIdx,targets,mode,inc);
+      alert((r.ok.length?`✓ Salvo e compartilhado com: ${r.ok.map(t=>conversations[t].title).join(', ')} (modo: ${mode}${inc?', +globais':''}).`:'✓ Salvo. Nada compartilhado.')+(r.errs.length?`\n✗ ${r.errs.join('\n')}`:''));
+    }
+  }catch(e){alert('✗ Falha ao salvar: '+(e&&e.message||e));}
+}
+function cancelConvMemoryModal(){editingConvMemoryIndex=null;closeModal('modalConvMemory');}
+async function summarizeConvToMemory(){
+  const c=conversations[editingConvMemoryIndex];if(!c||!c.messages.length){alert('Conversa vazia.');return;}
+  if(activeServer===null||!servers[activeServer]){alert('Selecione um servidor para resumir via LLM.');return;}
+  const srv=servers[activeServer];
+  const hist=c.messages.filter(m=>m.role==='user'||m.role==='assistant').slice(-20).map(m=>`${m.role==='user'?'Usuário':'Assistente'}: ${typeof m.content==='string'?m.content:'[anexo]'}`.slice(0,800)).join('\n');
+  const btn=document.getElementById('btnSummarizeMem');if(btn)btn.disabled=true;
+  try{
+    const body={messages:[{role:'system',content:'Extraia 3-8 pontos importantes da conversa abaixo como bullets .md curtos (fatos, decisões, preferências, contexto útil). Responda SÓ com os bullets, sem introdução.'},{role:'user',content:hist}],stream:false};
+    if(srv.model)body.model=srv.model;
+    const res=await llmChatFetch(srv,body,{signal:AbortSignal.timeout(60000)});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    const txt=data.choices?.[0]?.message?.content||'';
+    if(txt){const ta=document.getElementById('convMemIndividual');ta.value=((ta.value||'').trim()?ta.value.replace(/\s+$/,'')+'\n':'')+txt.trim();}
+  }catch(e){alert('Falha ao resumir: '+e.message);}
+  if(btn)btn.disabled=false;
+}
 
 function renderChat(){
   const area=document.getElementById('chatArea');
@@ -2226,6 +2505,7 @@ async function streamChatCompletion(srv, body, onDelta, signal){
         while(iteration<maxIter){
           iteration++;
           const messages=[];const sysPrompt=getActiveSystemPrompt();if(sysPrompt)messages.push({role:'system',content:sysPrompt});
+          if(memoryEnabled){const memBlock=getConvMemoryBlock(conv);if(memBlock)messages.push({role:'system',content:memBlock});}
           const maxMsgs=getActiveMaxMsgs();
           const hist=conv.messages.filter(m=>(m.role==='user'||m.role==='assistant'||m.role==='tool')&&!(m===assistantMsg&&!(m.tool_calls&&m.tool_calls.length)));
           let recent=hist.slice(-maxMsgs);
@@ -2500,8 +2780,8 @@ function applyFontScale(){fontScale=Math.max(0.7,Math.min(1.8,fontScale));docume
 function changeFontScale(delta){fontScale=Math.round((fontScale+delta)*10)/10;applyFontScale();}
 applyFontScale();
 
-function exportAll(){const d=JSON.stringify({servers,conversations,skills,agents,subAgents,mcps,orchestrators},null,2);const b=new Blob([d],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='llama-chat-backup.json';a.click();}
-async function importAll(event){const file=event.target.files[0];if(!file)return;const st=document.getElementById('importStatus');const reader=new FileReader();reader.onload=async(e)=>{try{const data=JSON.parse(e.target.result);if(data.servers){servers=data.servers;st.className='import-status working';for(let i=0;i<servers.length;i++){if(!servers[i].model){const d=await detectModelFromURL(servers[i].url,servers[i]);if(d)servers[i].model=d;}st.textContent=`🔍 (${i+1}/${servers.length})...`;renderServers();}localStorage.setItem('llama_servers',JSON.stringify(servers));st.className='import-status done';st.textContent=`✓ ${servers.length} importados.`;setTimeout(()=>{st.textContent='';st.className='import-status';},5000);}if(data.conversations){conversations=data.conversations;localStorage.setItem('llama_convs',JSON.stringify(conversations));}if(data.skills){skills=data.skills;localStorage.setItem('llama_skills',JSON.stringify(skills));}if(data.agents){agents=data.agents;localStorage.setItem('llama_agents',JSON.stringify(agents));}if(data.subAgents){subAgents=data.subAgents;localStorage.setItem('llama_subagents',JSON.stringify(subAgents));}if(data.mcps){mcps=data.mcps;localStorage.setItem('llama_mcps',JSON.stringify(mcps));}if(data.orchestrators){orchestrators=data.orchestrators;localStorage.setItem('llama_orchestrators',JSON.stringify(orchestrators));}renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();checkAllMCPStatus();refreshMicroMCPTools();}catch{st.textContent='✗ Inválido.';setTimeout(()=>st.textContent='',4000);}};reader.readAsText(file);event.target.value='';}
+function exportAll(){const d=JSON.stringify({servers,conversations,skills,agents,subAgents,mcps,orchestrators,memories},null,2);const b=new Blob([d],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='llama-chat-backup.json';a.click();}
+async function importAll(event){const file=event.target.files[0];if(!file)return;const st=document.getElementById('importStatus');const reader=new FileReader();reader.onload=async(e)=>{try{const data=JSON.parse(e.target.result);if(data.servers){servers=data.servers;st.className='import-status working';for(let i=0;i<servers.length;i++){if(!servers[i].model){const d=await detectModelFromURL(servers[i].url,servers[i]);if(d)servers[i].model=d;}st.textContent=`🔍 (${i+1}/${servers.length})...`;renderServers();}localStorage.setItem('llama_servers',JSON.stringify(servers));st.className='import-status done';st.textContent=`✓ ${servers.length} importados.`;setTimeout(()=>{st.textContent='';st.className='import-status';},5000);}if(data.conversations){conversations=data.conversations;conversations.forEach(ensureConvMem);localStorage.setItem('llama_convs',JSON.stringify(conversations));}if(data.skills){skills=data.skills;localStorage.setItem('llama_skills',JSON.stringify(skills));}if(data.agents){agents=data.agents;localStorage.setItem('llama_agents',JSON.stringify(agents));}if(data.subAgents){subAgents=data.subAgents;localStorage.setItem('llama_subagents',JSON.stringify(subAgents));}if(data.mcps){mcps=data.mcps;localStorage.setItem('llama_mcps',JSON.stringify(mcps));}if(data.orchestrators){orchestrators=data.orchestrators;localStorage.setItem('llama_orchestrators',JSON.stringify(orchestrators));}if(data.memories){memories=data.memories;saveMemories();}renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderMemories();updateMemoryBadges();checkAllMCPStatus();refreshMicroMCPTools();}catch{st.textContent='✗ Inválido.';setTimeout(()=>st.textContent='',4000);}};reader.readAsText(file);event.target.value='';}
 
 let pendingAttachments=[];
 function handleAttach(event){
@@ -2524,4 +2804,4 @@ function removeAttachment(i){pendingAttachments.splice(i,1);renderAttachPreview(
 
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
-document.querySelectorAll('.modal-overlay').forEach(el=>{el.addEventListener('click',(e)=>{if(e.target===el){if(el.id==='modalServer'){editingServerIndex=null;clearServerForm();}if(el.id==='modalSkill'){editingSkillIndex=null;clearSkillForm();}if(el.id==='modalAgent'){editingAgentIndex=null;clearAgentForm();}if(el.id==='modalSubAgent'){editingSubAgentIndex=null;clearSubAgentForm();}if(el.id==='modalMCP'){editingMCPIndex=null;clearMCPForm();}if(el.id==='modalOrch'){editingOrchIndex=null;clearOrchForm();}el.classList.remove('open');}});});
+document.querySelectorAll('.modal-overlay').forEach(el=>{el.addEventListener('click',(e)=>{if(e.target===el){if(el.id==='modalServer'){editingServerIndex=null;clearServerForm();}if(el.id==='modalSkill'){editingSkillIndex=null;clearSkillForm();}if(el.id==='modalAgent'){editingAgentIndex=null;clearAgentForm();}if(el.id==='modalSubAgent'){editingSubAgentIndex=null;clearSubAgentForm();}if(el.id==='modalMCP'){editingMCPIndex=null;clearMCPForm();}if(el.id==='modalOrch'){editingOrchIndex=null;clearOrchForm();}if(el.id==='modalMemory'){editingMemoryIndex=null;delete document.getElementById('modalMemory').dataset.editId;}if(el.id==='modalConvMemory')editingConvMemoryIndex=null;el.classList.remove('open');}});});

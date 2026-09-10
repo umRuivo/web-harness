@@ -49,8 +49,14 @@ body{font-family:Tahoma,Verdana,'Segoe UI',sans-serif;font-size:calc(12px*var(--
 .btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 
 /* ===== LISTAS de itens ===== */
-.server-item,.conv-item,.mcp-item,.skill-item,.agent-item,.subagent-item{padding:5px 8px;border-radius:2px;cursor:pointer;margin-bottom:3px;font-size:.95em;display:flex;align-items:center;justify-content:space-between;border:1px solid transparent}
-.server-item:hover,.conv-item:hover,.mcp-item:hover,.skill-item:hover,.agent-item:hover,.subagent-item:hover{background:#d8e6fd;border-color:#99b9e8}
+.server-item,.conv-item,.mcp-item,.skill-item,.agent-item,.subagent-item,.mem-item{padding:5px 8px;border-radius:2px;cursor:pointer;margin-bottom:3px;font-size:.95em;display:flex;align-items:center;justify-content:space-between;border:1px solid transparent}
+.server-item:hover,.conv-item:hover,.mcp-item:hover,.skill-item:hover,.agent-item:hover,.subagent-item:hover,.mem-item:hover{background:#d8e6fd;border-color:#99b9e8}
+.mem-info{display:flex;flex-direction:column;overflow:hidden;flex:1;cursor:pointer}
+.mem-name{font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mem-preview{font-size:.75em;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.mem-badge{font-size:.7em;background:#fff;border:1px solid #b0b0b0;border-radius:8px;padding:0 5px;margin-left:4px}
+.conv-item.active .mem-badge{color:#000}
+#activeMemBadge,#activeGlobalMemBadge{background:#e8dcf4;border-color:#8a6fc0}
 .server-item.active,.skill-item.active,.agent-item.active,.orch-item.active{background:var(--accent2)!important;color:#fff!important;border:1px solid #003dd0}
 .server-item.active .server-title,.skill-item.active .skill-name,.agent-item.active .agent-name,.server-item.active .server-model,.skill-item.active .skill-preview,.agent-item.active .agent-desc{color:#fff!important}
 .conv-item.active{background:var(--accent2);color:#fff}

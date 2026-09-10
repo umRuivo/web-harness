@@ -319,3 +319,12 @@ Versão simplificada/sem login (usa `API_TOKEN` fixo vazio = acesso aberto ou to
 | `/diag.php` | GET | Diagnóstico (`?key=DIAG_TOKEN`) |
 
 > O frontend `lama.js` usa também os endpoints das ferramentas built-in (wcurl, wcalc, wtime, workspace, weditor) diretamente no navegador, sem passar pelo backend.
+
+## 11. Memórias (global .md + individual por conversa) — `lama.js`
+
+- Estado: `memories` (`llama_memories`: `{id,title,content,enabled}`) + por conversa `memory` (texto .md) e `memoryIds[]` (globais vinculadas). Novas conversas herdam as globais ativas.
+- `getConvMemoryBlock(conv)` — monta o bloco `# Memórias` injetado como `system` em `sendMessage()` e no orquestrador (`runStep`).
+- Tools built-in `🧠 Memória` (`MEM_ID`): `memory_get`, `memory_append_conv`, `memory_append_global`, `memory_share_conv` (copia a individual da conversa ativa para outra por título/índice).
+- Compartilhar individual (modal 🧠 ou tool): `findConvByTarget()` (título duplicado = erro pedindo o índice) + `copyIndividualMemory(src,dst,append|overwrite,+globais)` + `doShareConvMemory()` — deixa recibo `system-msg` no destino (visível no chat, fora do contexto do LLM) e `persistAndVerifyShare()` relê o `localStorage` para garantir que persistiu (quota estourada = alerta explícito em vez de "vazia" após recarregar). `memory_get` identifica `[conversa #i "título"]` no retorno. Listener `storage` sincroniza `llama_convs`/`llama_memories` entre abas (evita aba velha sobrescrever a cópia). `saveConvMemory()` só reescreve vínculos globais se a lista foi renderizada; `cancelConvMemoryModal()` fecha sem salvar.
+- UI: seção `Memórias`, `renderMemories()`, `openConvMemoryModal()`/`saveConvMemory()`/`shareConvMemoryFromModal()`, `summarizeConvToMemory()` (bullets via LLM), badges 🧠/🌐 na lista e na topbar (`updateMemoryBadges()`).
+- Cache-busting: `lama.php` serve `lama.html` com `lama.js?v=<mtime>` (`__LAMAJS_V__`), então edições no JS sempre chegam ao navegador.

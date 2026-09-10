@@ -33,6 +33,14 @@
       <div id="convList"></div>
     </div>
   </div>
+  <div class="sidebar-section" id="memSection">
+    <h3 onclick="toggleSection('memSection','llama_mems_collapsed')">Memórias <span class="section-toggle">▾</span></h3>
+    <div class="section-body">
+      <div class="btn-row"><button class="btn small" onclick="openMemoryModal()">+ Nova memória global</button><button class="btn small" onclick="openEntityJSONModal('memories')">📋 JSON</button></div>
+      <div class="hint">🌐 Global = compartilhada (selecione por conversa) · 🧠 Individual = por conversa (botão 🧠 na conversa).</div>
+      <div id="memList"></div>
+    </div>
+  </div>
   <div class="sidebar-section" id="agentSection">
     <h3 onclick="toggleSection('agentSection','llama_agents_collapsed')">Agentes <span class="section-toggle">▾</span></h3>
     <div class="section-body">
@@ -85,6 +93,8 @@
     <span class="agent-badge-top" id="activeAgentBadge" style="display:none"></span>
     <span class="skill-badge" id="activeSkillBadge" style="display:none"></span>
     <span class="orch-active-badge" id="activeOrchBadge" style="display:none"></span>
+    <span class="skill-badge" id="activeMemBadge" style="display:none" title="Memória individual ativa">🧠</span>
+    <span class="skill-badge" id="activeGlobalMemBadge" style="display:none" title="Memórias globais ativas">🌐</span>
     <span class="speed-indicator" id="speedIndicator">⚡ 0 tok/s</span>
     <span class="spacer"></span>
     <button class="btn small" id="btnFontDown" onclick="changeFontScale(-0.1)" title="Diminuir fonte">A−</button>
@@ -92,6 +102,7 @@
     <button class="btn small" id="btnMarkdown" onclick="toggleMarkdown()">📝</button>
     <button class="btn small" id="btnCLI" onclick="toggleCLI()" title="Modo CLI">>_</button>
     <button class="btn small" id="btnStop" onclick="stopGeneration()" disabled>⏹</button>
+    <button class="btn small" onclick="if(activeConv!==null&&conversations[activeConv])openConvMemoryModal(activeConv);else alert('Selecione ou crie uma conversa.')" title="Memória da conversa atual">🧠</button>
     <button class="btn small" onclick="document.getElementById('attachInput').click()">📎</button>
     <input type="file" id="attachInput" style="display:none" onchange="handleAttach(event)">
     <button class="btn small" onclick="logoff()" title="Encerrar sessão (mantém configs)">🚪 Logoff</button>
@@ -326,6 +337,35 @@
   <div class="btn-row" style="margin-top:14px;justify-content:flex-end"><button class="btn" onclick="closeModal('modalMicroMCP')">Fechar</button></div>
 </div></div>
 
+<div class="modal-overlay" id="modalMemory"><div class="modal">
+  <h2 id="modalMemoryTitle">Nova memória global</h2>
+  <label>Título</label><input type="text" id="memTitle" placeholder="Ex.: Projeto X, Preferências, Stack...">
+  <label>Conteúdo (.md — pontos importantes)</label><textarea id="memContent" rows="10" style="font-family:monospace" placeholder="- Ponto importante 1&#10;- Decisão: usar ...&#10;- Prefere respostas curtas"></textarea>
+  <div class="hint">Memória global fica em <code>localStorage (llama_memories)</code> e pode ser selecionada em uma ou mais conversas.</div>
+  <div class="btn-row"><button class="btn" onclick="cancelMemoryModal()">Cancelar</button><button class="btn primary" onclick="saveMemory()">Salvar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalConvMemory"><div class="modal">
+  <h2 id="convMemTitle">🧠 Memória da conversa</h2>
+  <label>Memória individual desta conversa (.md)</label><textarea id="convMemIndividual" rows="8" style="font-family:monospace" placeholder="- Ponto importante desta conversa..."></textarea>
+  <div class="btn-row"><button class="btn small" id="btnSummarizeMem" onclick="summarizeConvToMemory()">✨ Resumir conversa na memória (via LLM)</button></div>
+  <label>Memórias globais usadas nesta conversa</label>
+  <div id="convMemGlobals" class="orch-checkbox-list"></div>
+  <div class="hint">Só as globais marcadas aqui + a individual acima entram no prompt (como bloco <code># Memórias</code>) e nas tools <code>memory_*</code>.</div>
+  <label>Compartilhar memória individual com outra conversa</label>
+  <div id="convMemShareList" class="orch-checkbox-list"></div>
+  <div class="btn-row" style="align-items:center">
+    <select id="convMemShareMode" style="flex:1">
+      <option value="append">Anexar ao destino (mantém o que já existe)</option>
+      <option value="overwrite">Substituir no destino</option>
+    </select>
+    <label class="hint" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="convMemShareGlobals"> junto as 🌐 globais</label>
+    <button class="btn small" onclick="shareConvMemoryFromModal()">📤 Compartilhar</button>
+  </div>
+  <div class="hint">Marque os destinos e clique em Compartilhar <em>ou</em> Salvar (salvar com destinos marcados também compartilha). A lista é uma ação — por isso reabre desmarcada. Não vincula: cada cópia vira independente.</div>
+  <div class="btn-row"><button class="btn" onclick="cancelConvMemoryModal()">Cancelar</button><button class="btn primary" onclick="saveConvMemory()">Salvar</button></div>
+</div></div>
+
 <div class="modal-overlay" id="modalMicroMCPEditor"><div class="modal" style="max-width:760px">
   <h2 id="microMCPEditorTitle">Editar micro-MCP</h2>
   <label>Arquivo</label>
@@ -336,6 +376,6 @@
   <div class="btn-row"><button class="btn" onclick="closeModal('modalMicroMCPEditor')">Cancelar</button><button class="btn primary" onclick="microMCPSave()">Salvar</button></div>
 </div></div>
 
-<script src="lama.js"></script>
+<script src="lama.js?v=__LAMAJS_V__"></script>
 </body>
 </html>
