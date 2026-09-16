@@ -337,7 +337,7 @@ body{font-family:Tahoma,Verdana,'Segoe UI',sans-serif;font-size:calc(12px*var(--
 @media(max-width:700px){.sidebar{width:240px;min-width:240px}.sidebar.hidden{margin-left:-240px}.msg{max-width:95%}.stats-bar{font-size:.72em;gap:10px}.ws-container{flex-direction:column;height:auto}.ws-tree{max-height:200px}.ws-preview{max-height:250px}}
 
 .cat-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
-/* Mestre 👑 */
+/* Mestre */
 #masterSection .section-body label{font-size:.85em;font-weight:bold;color:#333;display:block;margin:6px 0 3px}
 #masterServerSelect{width:100%;padding:3px 6px;border:1px solid #7f9db9;background:#fff;color:#000;font-size:.9em;font-family:inherit}
 #masterStatus{margin-top:4px}

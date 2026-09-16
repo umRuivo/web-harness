@@ -61,7 +61,7 @@ let backgroundTasks=[],taskIdCounter=0;
 let mcpStatus={},mcpToolsCache={};
 let orchestrators=JSON.parse(localStorage.getItem('llama_orchestrators')||'[]');
 let activeOrch=null;
-// ===== MESTRE 👑 — estado (no topo: renderServers/updateMasterUI rodam no INIT, antes do bloco do motor) =====
+// ===== MESTRE — estado (no topo: renderServers/updateMasterUI rodam no INIT, antes do bloco do motor) =====
 let masterCfg={};try{masterCfg=JSON.parse(localStorage.getItem('llama_master')||'{}');}catch(e){masterCfg={};}
 let masterServerIndex=(masterCfg.serverIndex!==undefined&&masterCfg.serverIndex!==null)?masterCfg.serverIndex:null;
 let masterActive=masterCfg.active===true;
@@ -2070,7 +2070,7 @@ async function executeOrchestrator(o,userMessage){
   saveConversations();renderChat();
 }
 
-// ===== MESTRE 👑 — servidor mestre que recebe a tarefa e cria/escolhe skills, sub-agentes, agentes, memórias e conversas =====
+// ===== MESTRE — servidor mestre que recebe a tarefa e cria/escolhe skills, sub-agentes, agentes, memórias e conversas =====
 const MASTER_ID='__master_builtin__';
 const MASTER_TOOLS=[
   {type:'function',function:{name:'master_list_skills',description:'Lista as skills existentes (índice, nome, resumo do prompt). Use para ESCOLHER uma skill pronta em vez de criar outra.',parameters:{type:'object',properties:{},required:[]}}},
@@ -2214,7 +2214,7 @@ async function executeMasterTool(toolName,args){
     if(!task)throw new Error('task obrigatória');
     const srv=servers[masterServerIndex];
     const label=`${ent.icon||(isSub?'🤖':'🧠')} ${ent.name}`;
-    addTaskMsg(`👑 Mestre delegou a ${label}: ${task.slice(0,100)}`);
+    addTaskMsg(`Mestre delegou a ${label}: ${task.slice(0,100)}`);
     try{
       const out=await masterLlmOnce(srv,(ent.prompt||'Execute a tarefa.')+`\n\nVocê foi acionado pelo MESTRE. Responda SÓ com o resultado da tarefa delegada.`,task);
       addTaskMsg(`✅ ${label} concluiu para o Mestre.`);
@@ -2227,7 +2227,7 @@ function masterSystemPrompt(){
   const sk=skills.map((s,i)=>`${i}:"${s.name}"`).join(', ')||'(nenhuma)';
   const sa=subAgents.map((s,i)=>`${i}:"${s.name}"`).join(', ')||'(nenhum)';
   const ag=agents.map((a,i)=>`${i}:"${a.name}"`).join(', ')||'(nenhum)';
-  return `Você é o MESTRE 👑 — um orquestrador autônomo. O usuário lhe deu uma TAREFA e você deve cumpri-la usando suas tools.
+  return `Você é o MESTRE — um orquestrador autônomo. O usuário lhe deu uma TAREFA e você deve cumpri-la usando suas tools.
 
 ## Recursos que você pode CRIAR ou ESCOLHER (use as tools master_*)
 - skills: [${sk}] — primeiro LISTE (master_list_skills); se uma existente servir, ESCOLHA-A (master_use_skill); só CRIE (master_create_skill) se nenhuma servir.
@@ -2246,11 +2246,11 @@ function masterSystemPrompt(){
 6) Responda em português brasileiro.`;
 }
 async function executeMasterTask(taskText){
-  if(masterServerIndex===null||!servers[masterServerIndex]){addSystemMsg('❌ Mestre: escolha um servidor mestre na seção Mestre 👑.');return;}
+  if(masterServerIndex===null||!servers[masterServerIndex]){addSystemMsg('❌ Mestre: escolha um servidor mestre na seção Mestre.');return;}
   if(activeConv===null)newConversation();
   const conv=conversations[activeConv];
   const srv=servers[masterServerIndex];
-  addSystemMsg(`👑 Mestre "${srv.name}" assumiu a tarefa (${servers.length} servidor(es), ${skills.length} skill(s), ${subAgents.length} sub-agente(s), ${agents.length} agente(s)).`);
+  addSystemMsg(`Mestre "${srv.name}" assumiu a tarefa (${servers.length} servidor(es), ${skills.length} skill(s), ${subAgents.length} sub-agente(s), ${agents.length} agente(s)).`);
   masterToolMode=true;
   const btnSend=document.getElementById('btnSend'),btnStop=document.getElementById('btnStop');
   if(btnSend)btnSend.disabled=true;if(btnStop)btnStop.disabled=false;
@@ -2287,7 +2287,7 @@ async function executeMasterTask(taskText){
       messages.push({role:'assistant',content:msg.content||'',tool_calls});
       for(const tc of tool_calls){
         const fn=tc.function.name;let fnArgs={};try{fnArgs=JSON.parse(tc.function.arguments||'{}');}catch(e){}
-        addToolMsg(`👑 ${fn}(${JSON.stringify(fnArgs).substring(0,120)})`);
+        addToolMsg(`Mestre: ${fn}(${JSON.stringify(fnArgs).substring(0,120)})`);
         const toolEntry=tools.find(t=>t.function.name===fn);
         let toolResult='';
         if(toolEntry){try{toolResult=await executeMCPToolByIndex(toolEntry._mcpIndex,fn,fnArgs);}catch(err){toolResult=`Erro: ${err.message}`;}}
@@ -2299,7 +2299,7 @@ async function executeMasterTask(taskText){
     }
     if(!final)final='(o mestre esgotou as iterações sem resposta final — veja as ações de ferramentas acima)';
     const{elapsed,tps}=stopSpeedTracking(totalCompletionTokens);
-    conv.messages.push({role:'assistant',content:`👑 **Mestre concluiu:**\n\n${final}`,speed:tps,tokens:totalCompletionTokens,time:totalTime.toFixed(1),usage:{prompt_tokens:totalPromptTokens,completion_tokens:totalCompletionTokens}});
+    conv.messages.push({role:'assistant',content:`**Mestre concluiu:**\n\n${final}`,speed:tps,tokens:totalCompletionTokens,time:totalTime.toFixed(1),usage:{prompt_tokens:totalPromptTokens,completion_tokens:totalCompletionTokens}});
     addStats(totalPromptTokens,totalCompletionTokens,totalTime);
   }catch(err){
     stopSpeedTracking(tokenCount);
@@ -2321,19 +2321,19 @@ function updateMasterUI(){
   const st=document.getElementById('masterStatus');
   if(st){
     if(masterServerIndex===null||!servers[masterServerIndex])st.textContent='Nenhum servidor mestre escolhido.';
-    else st.textContent=`👑 ${servers[masterServerIndex].name} · ${skills.length} skill(s) · ${subAgents.length} sub-agente(s) · ${agents.length} agente(s) · modo ${masterActive?'ATIVO':'inativo'} (use "! tarefa" ou ative o modo)`;
+    else st.textContent=`${servers[masterServerIndex].name} · ${skills.length} skill(s) · ${subAgents.length} sub-agente(s) · ${agents.length} agente(s) · modo ${masterActive?'ATIVO':'inativo'} (use "! tarefa" ou ative o modo)`;
   }
   const btn=document.getElementById('btnMasterActive');
   if(btn)btn.textContent=masterActive?'⏸ Desativar modo':'▶ Ativar modo';
   const badge=document.getElementById('activeMasterBadge');
   if(badge){
-    if(masterActive&&masterServerIndex!==null&&servers[masterServerIndex]){badge.textContent=`👑 Mestre: ${servers[masterServerIndex].name}`;badge.style.display='inline';}
+    if(masterActive&&masterServerIndex!==null&&servers[masterServerIndex]){badge.textContent=`Mestre: ${servers[masterServerIndex].name}`;badge.style.display='inline';}
     else badge.style.display='none';
   }
   const ta=document.getElementById('userInput');
   if(ta){
-    if(masterActive&&masterServerIndex!==null&&servers[masterServerIndex])ta.placeholder='👑 Modo Mestre ativo — digite a tarefa (ou "! tarefa" avulsa)...';
-    else ta.placeholder='Digite sua mensagem... (@ = workspace local · @@ = Weditor servidor · / = sub-agente · // = skill · \\ = agente · \\\\ = orquestrador · ! = mestre 👑)';
+    if(masterActive&&masterServerIndex!==null&&servers[masterServerIndex])ta.placeholder='Modo Mestre ativo — digite a tarefa (ou "! tarefa" avulsa)...';
+    else ta.placeholder='Digite sua mensagem... (@ = workspace local · @@ = Weditor servidor · / = sub-agente · // = skill · \\ = agente · \\\\ = orquestrador · ! = mestre)';
   }
 }
 function setMasterServer(v){
@@ -2342,10 +2342,10 @@ function setMasterServer(v){
   saveMasterCfg();updateMasterUI();
 }
 function toggleMasterActive(){
-  if(masterActive){masterActive=false;saveMasterCfg();updateMasterUI();addSystemMsg('👑 Modo Mestre desativado.');return;}
+  if(masterActive){masterActive=false;saveMasterCfg();updateMasterUI();addSystemMsg('Modo Mestre desativado.');return;}
   if(masterServerIndex===null||!servers[masterServerIndex]){alert('Escolha primeiro um servidor mestre.');return;}
   masterActive=true;saveMasterCfg();updateMasterUI();
-  addSystemMsg(`👑 Modo Mestre ativado (${servers[masterServerIndex].name}). Tudo que você enviar vira tarefa do mestre. "! tarefa" funciona mesmo com o modo desligado.`);
+  addSystemMsg(`Modo Mestre ativado (${servers[masterServerIndex].name}). Tudo que você enviar vira tarefa do mestre. "! tarefa" funciona mesmo com o modo desligado.`);
 }
 function openMasterModal(){
   updateMasterUI();
@@ -2398,7 +2398,7 @@ function updateSkillBadge(){const b=document.getElementById('activeSkillBadge');
 function clearSkillForm(){['skillName','skillPrompt','skillTemp','skillIcon'].forEach(id=>document.getElementById(id).value='');}
 
 function updateServerSelect(){const sel=document.getElementById('activeServerSelect');sel.innerHTML='<option value="">— Nenhum —</option>'+servers.map((s,i)=>`<option value="${i}">${escapeHtml(s.name)}</option>`).join('');sel.value=activeServer!==null?String(activeServer):'';}
-function renderServers(){updateServerSelect();document.getElementById('serverList').innerHTML=servers.map((s,i)=>`<div class="server-item ${activeServer===i?'active':''}" onclick="selectServer(${i})"><div class="server-info"><span class="server-title">${s.name}${s.fallbacks&&s.fallbacks.length?` <span class="mcp-badge">🔁 ${s.fallbacks.length}</span>`:''}${s.ollama?' <span class="mcp-badge">🦙</span>':''}${i===masterServerIndex?' <span class="mcp-badge" title="Servidor mestre">👑</span>':''}</span>${s.model?`<span class="server-model">${s.model}</span>`:''}</div><div class="item-actions"><button onclick="event.stopPropagation();editServer(${i})">✏️</button><button onclick="event.stopPropagation();deleteServer(${i})">🗑</button></div></div>`).join('');if(typeof updateMasterUI==='function'&&document.getElementById('masterServerSelect')){try{updateMasterUI();}catch(e){}}}
+function renderServers(){updateServerSelect();document.getElementById('serverList').innerHTML=servers.map((s,i)=>`<div class="server-item ${activeServer===i?'active':''}" onclick="selectServer(${i})"><div class="server-info"><span class="server-title">${s.name}${s.fallbacks&&s.fallbacks.length?` <span class="mcp-badge">🔁 ${s.fallbacks.length}</span>`:''}${s.ollama?' <span class="mcp-badge">🦙</span>':''}${i===masterServerIndex?' <span class="mcp-badge" title="Servidor mestre">MESTRE</span>':''}</span>${s.model?`<span class="server-model">${s.model}</span>`:''}</div><div class="item-actions"><button onclick="event.stopPropagation();editServer(${i})">✏️</button><button onclick="event.stopPropagation();deleteServer(${i})">🗑</button></div></div>`).join('');if(typeof updateMasterUI==='function'&&document.getElementById('masterServerSelect')){try{updateMasterUI();}catch(e){}}}
 function selectServer(i){if(i==null||isNaN(i)||!servers[i]){activeServer=null;document.getElementById('activeServerName').textContent='Nenhum';renderServers();return;}activeServer=i;document.getElementById('activeServerName').textContent=servers[i].name;renderServers();}
 function toggleServerAdvanced(){
   const fields=document.getElementById('serverAdvancedFields');
@@ -2776,10 +2776,10 @@ async function streamChatCompletion(srv, body, onDelta, signal){
 
   async function sendMessage(){
     const input=document.getElementById('userInput');const text=input.value.trim();if(!text&&!pendingAttachments.length)return;
-  // 👑 Mestre: prefixo "! tarefa" (avulso) ou modo mestre ativo
-  const masterOnce=text.match(/^[!👑]\s*(.+)$/s);
+  // Mestre: prefixo "! tarefa" (avulso) ou modo mestre ativo
+  const masterOnce=text.match(/^!\s*(.+)$/s);
   if(masterOnce){
-    if(masterServerIndex===null||!servers[masterServerIndex]){alert('Escolha um servidor mestre na seção Mestre 👑.');return;}
+    if(masterServerIndex===null||!servers[masterServerIndex]){alert('Escolha um servidor mestre na seção Mestre.');return;}
     const task=masterOnce[1].trim();if(!task)return;
     if(activeConv===null)newConversation();
     conversations[activeConv].messages.push({role:'user',content:text});input.value='';pendingAttachments=[];renderAttachPreview();renderChat();saveConversations();
