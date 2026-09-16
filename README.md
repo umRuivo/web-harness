@@ -19,11 +19,28 @@ Modelos de chat expostos via API costumam travar em três pontos no navegador: *
   - `Wcurl` (requisições HTTP),
   - `Memória` (ler/salvar pontos importantes, compartilhar entre conversas).
 - **Orquestração** — agentes, sub-agentes, skills e orquestradores configuráveis, com temperatura e prompt próprios.
+- **Mestre 👑** — escolha um servidor para ser o mestre: ele recebe uma tarefa (`! tarefa`, modal *👑 Nova tarefa* ou modo mestre ativo) e pode criar/escolher skills, sub-agentes, agentes, memórias e conversas para cumpri-la, além de delegar execução e usar as MCPs ativas.
 - **Memórias persistentes** — memória global compartilhável + memória individual por conversa, em `.md`, injetadas no prompt e acessíveis ao LLM via tools.
 - **Visão multimodal** — anexe imagens; o app monta o conteúdo no formato `image_url` aceito pelos modelos.
 - **Sanitização de schema (Ollama)** — converte propriedades `type: array` em `string` e remove `items`/`prefixItems` que quebram o parser do Ollama, garantindo tool-calling funcional.
 - **Autenticação backend** — tela de login (`login.php`) com usuário e senha; o *relay* e todas as ações exigem sessão autenticada (cookie `HttpOnly` + `Secure` + `SameSite=Lax`).
 - **Logoff** — encerra a sessão no servidor e retorna à tela de login.
+
+## Mestre 👑
+
+Na sidebar, seção **Mestre 👑**, escolha um servidor para ser o mestre. Ele recebe uma tarefa de três formas:
+
+- **Modal**: botão *👑 Nova tarefa* (servidor + descrição + opção de criar nova conversa);
+- **Modo mestre**: botão *▶ Ativar modo* — tudo que você enviar vira tarefa do mestre (badge `👑 Mestre: nome` na topbar);
+- **Avulso**: prefixo `! tarefa` (ou `👑 tarefa`) no chat, mesmo com o modo desligado.
+
+O mestre roda um loop de até 12 iterações de tool-calling com tools próprias (`master_*`, visíveis só durante a execução), somadas às MCPs ativas:
+
+- **Listar/escolher o existente**: `master_list_skills`, `master_list_subagents`, `master_list_agents`, `master_list_memories`, `master_list_conversations` + `master_use_skill`, `master_use_agent`, `master_append_memory`;
+- **Criar o que faltar**: `master_create_skill`, `master_create_subagent`, `master_create_agent`, `master_create_memory_global` (já vinculada à conversa atual), `master_create_conversation`;
+- **Delegar execução** via chamada LLM real com o prompt do especialista: `master_run_subagent`, `master_run_agent`.
+
+A regra do system prompt é reutilizar antes de criar (criar duplicata retorna erro orientando a escolher o existente). Cada ação aparece no chat como `👑 tool(...)` e, ao final, o mestre posta **👑 Mestre concluiu** com resumo do que criou/escolheu e onde está. A config do mestre (`llama_master`) vai junto no backup JSON e o servidor mestre é marcado com `👑` na lista de servidores.
 
 ## Memórias
 
