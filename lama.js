@@ -61,6 +61,12 @@ let backgroundTasks=[],taskIdCounter=0;
 let mcpStatus={},mcpToolsCache={};
 let orchestrators=JSON.parse(localStorage.getItem('llama_orchestrators')||'[]');
 let activeOrch=null;
+// ===== MESTRE 👑 — estado (no topo: renderServers/updateMasterUI rodam no INIT, antes do bloco do motor) =====
+let masterCfg={};try{masterCfg=JSON.parse(localStorage.getItem('llama_master')||'{}');}catch(e){masterCfg={};}
+let masterServerIndex=(masterCfg.serverIndex!==undefined&&masterCfg.serverIndex!==null)?masterCfg.serverIndex:null;
+let masterActive=masterCfg.active===true;
+let masterToolMode=false; // true só durante executeMasterTask: expõe as tools master_* ao LLM
+function saveMasterCfg(){try{localStorage.setItem('llama_master',JSON.stringify({serverIndex:masterServerIndex,active:masterActive}));}catch(e){}}
 // ===== MEMÓRIAS (global .md + individual por conversa) =====
 let memories=JSON.parse(localStorage.getItem('llama_memories')||'[]');
 let editingMemoryIndex=null,editingConvMemoryIndex=null;
@@ -158,7 +164,7 @@ updateStatsDisplay();
 const IMPORT_CATS=[['servers','🖥 Servidores'],['conversations','💬 Conversas'],['agents','🧠 Agentes'],['subAgents','🤖 Sub-Agentes'],['skills','⚡ Skills'],['mcps','🔧 Ferramentas (MCP)'],['orchestrators','🎼 Orquestradores'],['memories','🧠 Memórias']];
 function catStore(){return{servers,conversations,agents,subAgents,skills,mcps,orchestrators,memories};}
 function catStorageKey(cat){return{servers:'llama_servers',conversations:'llama_convs',agents:'llama_agents',subAgents:'llama_subagents',skills:'llama_skills',mcps:'llama_mcps',orchestrators:'llama_orchestrators',memories:'llama_memories'}[cat];}
-function renderAllSections(){renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();if(typeof renderMemories==='function')renderMemories();}
+function renderAllSections(){renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();if(typeof renderMemories==='function')renderMemories();if(typeof updateMasterUI==='function')updateMasterUI();}
 function openExportModal(){document.getElementById('exportCatButtons').innerHTML=IMPORT_CATS.map(([cat,label])=>`<button class="btn small" onclick="exportCat('${cat}')">${label}</button>`).join('');openModal('modalExport');}
 function openImportModal(){document.getElementById('importCatButtons').innerHTML=IMPORT_CATS.map(([cat,label])=>`<button class="btn small" onclick="importCat('${cat}')">${label}</button>`).join('');openModal('modalImport');}
 function downloadJSON(data,filename){const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=filename;a.click();}
@@ -1450,6 +1456,7 @@ const PROJECT_FUNCTIONS=[
     ['Agentes','Personas com prompt próprio (ex.: gamedev, escritor) para direcionar as respostas.'],
     ['Sub-Agentes','Comandos como /critico, /pesquisador, /gramatical para tarefas em segundo plano.'],
     ['Skills','Prompts reutilizáveis que podem ser ativados pelo chat.'],
+    ['Mestre 👑','Servidor mestre que recebe uma tarefa ("! tarefa" ou modo ativo) e cria/escolhe skills, sub-agentes, agentes, memórias e conversas para cumpri-la.'],
     ['Orquestradores','Pipelines multi-etapa que coordenam agentes, sub-agentes e ferramentas.']
   ]},
   {title:'📁 Arquivos',items:[
@@ -1480,7 +1487,7 @@ function renderHomeFunctions(){
 }
 
 // ===== INIT =====
-renderServers();renderConversations();renderChat();renderMCPs();renderSkills();renderAgents();renderSubAgents();renderOrchestrators();renderMemories();updateMemoryBadges();
+renderServers();renderConversations();renderChat();renderMCPs();renderSkills();renderAgents();renderSubAgents();renderOrchestrators();renderMemories();updateMemoryBadges();updateMasterUI();
 checkAllMCPStatus();
 refreshMicroMCPTools();
 
@@ -1501,7 +1508,8 @@ function applySectionStates(){
     skillSection:'llama_skills_collapsed',
     mcpSection:'llama_mcps_collapsed',
     memSection:'llama_mems_collapsed',
-    orchSection:'llama_orchs_collapsed'
+    orchSection:'llama_orchs_collapsed',
+    masterSection:'llama_master_collapsed'
   };
   for(const[id,key]of Object.entries(map)){
     const el=document.getElementById(id);
@@ -1521,6 +1529,7 @@ function stopSpeedTracking(ft){if(speedInterval){clearInterval(speedInterval);sp
 // ===== MCP TOOLS =====
 function getActiveMCPTools(){
   let allTools=[];
+  if(masterToolMode)allTools=allTools.concat(MASTER_TOOLS.map(t=>({...t,_mcpIndex:MASTER_ID})));
   if(memoryEnabled)allTools=allTools.concat(MEMORY_TOOLS.map(t=>({...t,_mcpIndex:MEM_ID})));
   if(wcurlEnabled)allTools=allTools.concat(WCURL_TOOLS.map(t=>({...t,_mcpIndex:WCURL_ID})));
   if(wcalcEnabled)allTools=allTools.concat(WCALC_TOOLS.map(t=>({...t,_mcpIndex:WCALC_ID})));
@@ -1583,6 +1592,7 @@ function stripOllamaMessages(srv, messages){
 }
 
 async function executeMCPToolByIndex(mcpIndex,toolName,args){
+  if(mcpIndex===MASTER_ID)return await executeMasterTool(toolName,args);
   if(mcpIndex===MEM_ID)return await executeMemory(toolName,args);
   if(mcpIndex===WCURL_ID)return await executeWcurl(toolName,args);
   if(mcpIndex===WCALC_ID)return await executeWcalc(toolName,args);
@@ -2054,21 +2064,319 @@ async function executeOrchestrator(o,userMessage){
   saveConversations();renderChat();
 }
 
-function clearAll(){if(!confirm('⚠️ Apagar TUDO?'))return;servers=[];conversations=[];skills=[];agents=[];subAgents=[];mcps=[];orchestrators=[];memories=[];mcpStatus={};mcpToolsCache={};mmcpToolsCache=[];activeServer=null;activeConv=null;activeSkill=null;activeAgent=null;activeOrch=null;backgroundTasks=[];stats={inputTokens:0,outputTokens:0,totalTime:0,requests:0};['llama_servers','llama_convs','llama_skills','llama_agents','llama_subagents','llama_mcps','llama_stats','llama_workspace_files','llama_orchestrators','llama_memories','mmcp_enabled'].forEach(k=>localStorage.removeItem(k));document.getElementById('activeServerName').textContent='Nenhum';document.getElementById('activeSkillBadge').style.display='none';document.getElementById('activeAgentBadge').style.display='none';renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderMemories();updateMemoryBadges();renderChat();renderTasks();updateStatsDisplay();}
+// ===== MESTRE 👑 — servidor mestre que recebe a tarefa e cria/escolhe skills, sub-agentes, agentes, memórias e conversas =====
+const MASTER_ID='__master_builtin__';
+const MASTER_TOOLS=[
+  {type:'function',function:{name:'master_list_skills',description:'Lista as skills existentes (índice, nome, resumo do prompt). Use para ESCOLHER uma skill pronta em vez de criar outra.',parameters:{type:'object',properties:{},required:[]}}},
+  {type:'function',function:{name:'master_list_subagents',description:'Lista os sub-agentes existentes (índice, nome, descrição). Use para ESCOLHER um sub-agente pronto.',parameters:{type:'object',properties:{},required:[]}}},
+  {type:'function',function:{name:'master_list_agents',description:'Lista os agentes existentes (índice, nome, descrição). Use para ESCOLHER um agente pronto.',parameters:{type:'object',properties:{},required:[]}}},
+  {type:'function',function:{name:'master_list_memories',description:'Lista as memórias globais e o resumo da memória individual da conversa atual.',parameters:{type:'object',properties:{},required:[]}}},
+  {type:'function',function:{name:'master_list_conversations',description:'Lista as conversas existentes (índice, título, nº de mensagens). Use para ESCOLHER/reaproveitar contexto.',parameters:{type:'object',properties:{},required:[]}}},
+  {type:'function',function:{name:'master_create_skill',description:'CRIA uma nova skill (prompt reutilizável). Prefira ESCOLHER uma existente (master_list_skills) quando servir.',parameters:{type:'object',properties:{name:{type:'string',description:'Nome curto, sem espaços (ex: revisor)'},prompt:{type:'string',description:'System prompt completo da skill'},icon:{type:'string',description:'Emoji opcional'},temperature:{type:'string',description:'Temperatura opcional (ex: "0.7")'}},required:['name','prompt']}}},
+  {type:'function',function:{name:'master_create_subagent',description:'CRIA um novo sub-agente (executado via /nome em background).',parameters:{type:'object',properties:{name:{type:'string',description:'Nome curto sem espaços (ex: revisor)'},prompt:{type:'string',description:'System prompt completo'},desc:{type:'string',description:'Descrição curta'},icon:{type:'string',description:'Emoji opcional'}},required:['name','prompt']}}},
+  {type:'function',function:{name:'master_create_agent',description:'CRIA um novo agente (persona com prompt próprio, ativável com \\nome).',parameters:{type:'object',properties:{name:{type:'string',description:'Nome do agente'},prompt:{type:'string',description:'System prompt completo'},desc:{type:'string',description:'Descrição curta'},icon:{type:'string',description:'Emoji opcional'},skill:{type:'string',description:'Nome de skill existente para vincular (opcional)'}},required:['name','prompt']}}},
+  {type:'function',function:{name:'master_create_memory_global',description:'CRIA uma memória global (.md) compartilhável entre conversas e já a vincula à conversa atual.',parameters:{type:'object',properties:{title:{type:'string',description:'Título da memória'},content:{type:'string',description:'Conteúdo .md (bullets)'}},required:['title','content']}}},
+  {type:'function',function:{name:'master_create_conversation',description:'CRIA uma nova conversa (compartimento de contexto) e a torna a conversa ativa.',parameters:{type:'object',properties:{title:{type:'string',description:'Título da nova conversa'}},required:['title']}}},
+  {type:'function',function:{name:'master_use_skill',description:'ESCOLHE/ativa uma skill existente para o chat (por nome ou índice).',parameters:{type:'object',properties:{target:{type:'string',description:'Nome ou índice da skill'}},required:['target']}}},
+  {type:'function',function:{name:'master_use_agent',description:'ESCOLHE/ativa um agente existente (por nome ou índice).',parameters:{type:'object',properties:{target:{type:'string',description:'Nome ou índice do agente'}},required:['target']}}},
+  {type:'function',function:{name:'master_append_memory',description:'Salva um ponto importante na memória INDIVIDUAL da conversa atual.',parameters:{type:'object',properties:{point:{type:'string',description:'Ponto importante (1-3 frases ou bullet .md)'}},required:['point']}}},
+  {type:'function',function:{name:'master_run_subagent',description:'DELEGA uma tarefa a um sub-agente existente e retorna o resultado. Use para executar partes da tarefa com especialistas.',parameters:{type:'object',properties:{target:{type:'string',description:'Nome ou índice do sub-agente'},task:{type:'string',description:'Tarefa a delegar'}},required:['target','task']}}},
+  {type:'function',function:{name:'master_run_agent',description:'DELEGA uma tarefa a um agente existente e retorna o resultado.',parameters:{type:'object',properties:{target:{type:'string',description:'Nome ou índice do agente'},task:{type:'string',description:'Tarefa a delegar'}},required:['target','task']}}},
+];
+function masterFindByTarget(list,target){
+  if(target===undefined||target===null||target==='')return -1;
+  if(typeof target==='number'&&Number.isInteger(target)&&list[target])return target;
+  const s=String(target).trim();
+  if(/^\d+$/.test(s)){const i=parseInt(s,10);if(list[i])return i;}
+  const low=s.toLowerCase();
+  return list.findIndex(x=>((x.name||x.title)||'').toLowerCase()===low);
+}
+async function masterLlmOnce(srv,systemPrompt,userText,timeoutMs=120000){
+  const body={messages:[{role:'system',content:systemPrompt},{role:'user',content:userText}],stream:false};
+  if(srv.model)body.model=srv.model;
+  applyOllamaCompat(srv,body);
+  const ctrl=new AbortController();const to=setTimeout(()=>ctrl.abort(),timeoutMs);
+  try{
+    const res=await llmChatFetch(srv,body,{signal:ctrl.signal});
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
+    return data.choices?.[0]?.message?.content||'(vazio)';
+  }finally{clearTimeout(to);}
+}
+async function executeMasterTool(toolName,args){
+  args=args||{};
+  const str=(v)=>((v===undefined||v===null)?'':String(v));
+  if(toolName==='master_list_skills'){
+    if(!skills.length)return 'Nenhuma skill cadastrada.';
+    return skills.map((s,i)=>`${i} — ${(s.icon?s.icon+' ':'')}${s.name}: ${(s.prompt||'').slice(0,120)}`).join('\n');
+  }
+  if(toolName==='master_list_subagents'){
+    if(!subAgents.length)return 'Nenhum sub-agente cadastrado.';
+    return subAgents.map((s,i)=>`${i} — ${(s.icon?s.icon+' ':'')}${s.name}: ${s.desc||(s.prompt||'').slice(0,100)} (uso: /${s.name} tarefa)`).join('\n');
+  }
+  if(toolName==='master_list_agents'){
+    if(!agents.length)return 'Nenhum agente cadastrado.';
+    return agents.map((a,i)=>`${i} — ${(a.icon?a.icon+' ':'')}${a.name}: ${a.desc||(a.prompt||'').slice(0,100)}`).join('\n');
+  }
+  if(toolName==='master_list_memories'){
+    const lines=[];
+    lines.push(`Memórias globais (${memories.length}):`);
+    memories.forEach(m=>lines.push(`- [${m.id}] "${m.title}" ${m.enabled===false?'(desativada)':''}: ${(m.content||'').slice(0,120)||'(vazia)'}`));
+    const conv=(activeConv!==null&&conversations[activeConv])?conversations[activeConv]:null;
+    lines.push(`Memória individual da conversa atual${conv?` ("${conv.title}")`:''}: ${conv&&conv.memory?conv.memory.slice(0,500):'(vazia)'}`);
+    if(conv)lines.push(`Globais vinculadas: ${(conv.memoryIds||[]).join(', ')||'(nenhuma)'}`);
+    return lines.join('\n');
+  }
+  if(toolName==='master_list_conversations'){
+    if(!conversations.length)return 'Nenhuma conversa.';
+    return conversations.map((c,i)=>`${i} — "${c.title}" (${(c.messages||[]).length} msgs)${i===activeConv?' [ATIVA]':''}`).join('\n');
+  }
+  if(toolName==='master_create_skill'){
+    const name=str(args.name).trim(),prompt=str(args.prompt).trim();
+    if(!name||!prompt)throw new Error('name e prompt obrigatórios');
+    if(skills.find(s=>s.name.toLowerCase()===name.toLowerCase()))throw new Error(`Skill "${name}" já existe — escolha-a com master_use_skill`);
+    const s={name,prompt,icon:str(args.icon).trim()||undefined,temperature:parseFloat(args.temperature)||undefined};
+    skills.push(s);localStorage.setItem('llama_skills',JSON.stringify(skills));renderSkills();
+    return `Skill "${name}" criada (índice ${skills.length-1}).`;
+  }
+  if(toolName==='master_create_subagent'){
+    const name=str(args.name).trim().replace(/[^a-zA-Z0-9_-]/g,''),prompt=str(args.prompt).trim();
+    if(!name||!prompt)throw new Error('name e prompt obrigatórios');
+    if(subAgents.find(s=>s.name.toLowerCase()===name.toLowerCase()))throw new Error(`Sub-agente "${name}" já existe — escolha-o ou delegue com master_run_subagent`);
+    subAgents.push({name,prompt,desc:str(args.desc).trim()||undefined,icon:str(args.icon).trim()||undefined,serverIndex:null});
+    localStorage.setItem('llama_subagents',JSON.stringify(subAgents));renderSubAgents();
+    return `Sub-agente "${name}" criado (uso: /${name} tarefa).`;
+  }
+  if(toolName==='master_create_agent'){
+    const name=str(args.name).trim(),prompt=str(args.prompt).trim();
+    if(!name||!prompt)throw new Error('name e prompt obrigatórios');
+    if(agents.find(a=>a.name.toLowerCase()===name.toLowerCase()))throw new Error(`Agente "${name}" já existe — escolha-o com master_use_agent`);
+    let skillIndex=null;
+    if(str(args.skill).trim()){const si=masterFindByTarget(skills,args.skill);if(si>=0)skillIndex=si;}
+    agents.push({name,prompt,desc:str(args.desc).trim()||undefined,icon:str(args.icon).trim()||undefined,serverIndex:null,skillIndex,temperature:undefined,maxTokens:undefined,topP:undefined,maxMsgs:undefined});
+    localStorage.setItem('llama_agents',JSON.stringify(agents));renderAgents();
+    return `Agente "${name}" criado (índice ${agents.length-1}).`;
+  }
+  if(toolName==='master_create_memory_global'){
+    const title=str(args.title).trim()||'Memória do Mestre',content=str(args.content).trim();
+    if(!content)throw new Error('content obrigatório');
+    const m={id:memUid(),title:title.slice(0,60),content,enabled:true,created:new Date().toISOString(),updated:new Date().toISOString()};
+    memories.push(m);saveMemories();renderMemories();
+    const conv=(activeConv!==null&&conversations[activeConv])?conversations[activeConv]:null;
+    if(conv){ensureConvMem(conv);if(!conv.memoryIds.includes(m.id)){conv.memoryIds.push(m.id);saveConversations();renderConversations();updateMemoryBadges();}}
+    return `Memória global "${m.title}" criada e vinculada à conversa atual.`;
+  }
+  if(toolName==='master_create_conversation'){
+    const title=str(args.title).trim()||`Conversa do Mestre ${conversations.length+1}`;
+    const ids=memories.filter(m=>m.enabled!==false).map(m=>m.id);
+    conversations.push({title,messages:[],memory:'',memoryIds:ids});
+    activeConv=conversations.length-1;
+    saveConversations();renderConversations();renderChat();updateMemoryBadges();
+    return `Conversa "${title}" criada e ativada (índice ${activeConv}).`;
+  }
+  if(toolName==='master_use_skill'){
+    const i=masterFindByTarget(skills,args.target);
+    if(i<0)throw new Error(`Skill não encontrada: "${args.target}". Liste com master_list_skills. Skills: ${skills.map(s=>s.name).join(', ')||'(nenhuma)'}`);
+    activeSkill=i;updateSkillBadge();renderSkills();
+    return `Skill "${skills[i].name}" ATIVADA no chat. Prompt: ${skills[i].prompt}`;
+  }
+  if(toolName==='master_use_agent'){
+    const i=masterFindByTarget(agents,args.target);
+    if(i<0)throw new Error(`Agente não encontrado: "${args.target}". Liste com master_list_agents.`);
+    const a=agents[i];
+    activeAgent=i;updateAgentBadge();renderAgents();
+    if(a.skillIndex!=null&&skills[a.skillIndex]){activeSkill=a.skillIndex;updateSkillBadge();renderSkills();}
+    return `Agente "${a.name}" ATIVADO no chat. Prompt: ${a.prompt}`;
+  }
+  if(toolName==='master_append_memory'){
+    const p=str(args.point).trim();
+    if(!p)throw new Error('point obrigatório');
+    const conv=(activeConv!==null&&conversations[activeConv])?conversations[activeConv]:null;
+    if(!conv)throw new Error('Sem conversa ativa');
+    ensureConvMem(conv);
+    conv.memory=((conv.memory||'').trim()?conv.memory.replace(/\s+$/,'')+'\n':'')+`- ${p.replace(/^\s*-\s*/,'')}`;
+    saveConversations();renderConversations();updateMemoryBadges();
+    return `Salvo na memória da conversa "${conv.title}": ${p}`;
+  }
+  if(toolName==='master_run_subagent'||toolName==='master_run_agent'){
+    const isSub=toolName==='master_run_subagent';
+    const list=isSub?subAgents:agents;
+    const i=masterFindByTarget(list,args.target);
+    if(i<0)throw new Error(`${isSub?'Sub-agente':'Agente'} não encontrado: "${args.target}". Primeiro liste (${isSub?'master_list_subagents':'master_list_agents'}) ou crie (${isSub?'master_create_subagent':'master_create_agent'}).`);
+    const ent=list[i];
+    const task=str(args.task).trim();
+    if(!task)throw new Error('task obrigatória');
+    const srv=servers[masterServerIndex];
+    const label=`${ent.icon||(isSub?'🤖':'🧠')} ${ent.name}`;
+    addTaskMsg(`👑 Mestre delegou a ${label}: ${task.slice(0,100)}`);
+    try{
+      const out=await masterLlmOnce(srv,(ent.prompt||'Execute a tarefa.')+`\n\nVocê foi acionado pelo MESTRE. Responda SÓ com o resultado da tarefa delegada.`,task);
+      addTaskMsg(`✅ ${label} concluiu para o Mestre.`);
+      return `Resultado de "${ent.name}":\n${out}`;
+    }catch(e){throw new Error(`Falha ao delegar a "${ent.name}": ${e.message}`);}
+  }
+  throw new Error(`Tool desconhecida: ${toolName}`);
+}
+function masterSystemPrompt(){
+  const sk=skills.map((s,i)=>`${i}:"${s.name}"`).join(', ')||'(nenhuma)';
+  const sa=subAgents.map((s,i)=>`${i}:"${s.name}"`).join(', ')||'(nenhum)';
+  const ag=agents.map((a,i)=>`${i}:"${a.name}"`).join(', ')||'(nenhum)';
+  return `Você é o MESTRE 👑 — um orquestrador autônomo. O usuário lhe deu uma TAREFA e você deve cumpri-la usando suas tools.
+
+## Recursos que você pode CRIAR ou ESCOLHER (use as tools master_*)
+- skills: [${sk}] — primeiro LISTE (master_list_skills); se uma existente servir, ESCOLHA-A (master_use_skill); só CRIE (master_create_skill) se nenhuma servir.
+- sub-agentes: [${sa}] — mesmo raciocínio: LISTE, ESCOLHA ou CRIE, e DELEGUE execução com master_run_subagent.
+- agentes: [${ag}] — LISTE, ESCOLHA (master_use_agent) ou CRIE, e DELEGUE com master_run_agent.
+- memórias: LISTE com master_list_memories; CRIE globais com master_create_memory_global; salve pontos na conversa atual com master_append_memory.
+- conversas: LISTE com master_list_conversations; CRIE compartimentos com master_create_conversation quando a tarefa pedir organização separada.
+- ferramentas MCP ativas (workspace_*, wcurl_*, wcalc_*, wtime_*, weditor_*, memory_*): use para executar trabalho real (arquivos, web, cálculos, datas).
+
+## Regras
+1) SEMPRE comece LISTANDO o que já existe antes de criar (evite duplicatas — criar duplicata retorna erro).
+2) Reutilize o existente sempre que possível; crie apenas o que faltar.
+3) Delegue trechos especializados via master_run_subagent/master_run_agent em vez de fazer tudo sozinho.
+4) Salve decisões e pontos importantes com master_append_memory / master_create_memory_global.
+5) Quando a tarefa estiver cumprida, responda com o RESULTADO FINAL em texto (sem mais tool calls), resumindo: o que foi criado, o que foi escolhido e onde está cada coisa.
+6) Responda em português brasileiro.`;
+}
+async function executeMasterTask(taskText){
+  if(masterServerIndex===null||!servers[masterServerIndex]){addSystemMsg('❌ Mestre: escolha um servidor mestre na seção Mestre 👑.');return;}
+  if(activeConv===null)newConversation();
+  const conv=conversations[activeConv];
+  const srv=servers[masterServerIndex];
+  addSystemMsg(`👑 Mestre "${srv.name}" assumiu a tarefa (${servers.length} servidor(es), ${skills.length} skill(s), ${subAgents.length} sub-agente(s), ${agents.length} agente(s)).`);
+  masterToolMode=true;
+  const btnSend=document.getElementById('btnSend'),btnStop=document.getElementById('btnStop');
+  if(btnSend)btnSend.disabled=true;if(btnStop)btnStop.disabled=false;
+  abortController=new AbortController();startSpeedTracking();
+  try{
+    const tools=getActiveMCPTools();
+    const toolsForAPI=tools.map(({_mcpIndex,...t})=>t);
+    const sysParts=[masterSystemPrompt()];
+    if(srv.system)sysParts.push(`Contexto do servidor: ${srv.system}`);
+    const memB=getConvMemoryBlock(conv);
+    if(memoryEnabled&&memB)sysParts.push(memB);
+    const messages=[{role:'system',content:sysParts.join('\n\n')},{role:'user',content:`TAREFA: ${taskText}`}];
+    let final='',iteration=0;const maxIter=12;
+    let totalPromptTokens=0,totalCompletionTokens=0,totalTime=0;
+    while(iteration<maxIter){
+      iteration++;
+      const body={messages,stream:false};
+      if(srv.model)body.model=srv.model;
+      if(srv.maxTokens)body.max_tokens=srv.maxTokens;
+      if(srv.temperature!==undefined)body.temperature=srv.temperature;
+      if(srv.topP!==undefined)body.top_p=srv.topP;
+      if(toolsForAPI.length>0){body.tools=sanitizeToolsForOllama(toolsForAPI);body.tool_choice='auto';}
+      applyOllamaCompat(srv,body);
+      const reqStart=performance.now();
+      const res=await llmChatFetch(srv,body,{signal:abortController.signal});
+      totalTime+=(performance.now()-reqStart)/1000;
+      if(!res.ok)throw new Error(`HTTP ${res.status}`);
+      const data=await res.json();
+      const msg=data.choices?.[0]?.message||{};
+      totalPromptTokens+=data.usage?.prompt_tokens||0;
+      totalCompletionTokens+=data.usage?.completion_tokens||0;
+      const tool_calls=msg.tool_calls||[];
+      if(!tool_calls.length){final=msg.content||'(vazio)';break;}
+      messages.push({role:'assistant',content:msg.content||'',tool_calls});
+      for(const tc of tool_calls){
+        const fn=tc.function.name;let fnArgs={};try{fnArgs=JSON.parse(tc.function.arguments||'{}');}catch(e){}
+        addToolMsg(`👑 ${fn}(${JSON.stringify(fnArgs).substring(0,120)})`);
+        const toolEntry=tools.find(t=>t.function.name===fn);
+        let toolResult='';
+        if(toolEntry){try{toolResult=await executeMCPToolByIndex(toolEntry._mcpIndex,fn,fnArgs);}catch(err){toolResult=`Erro: ${err.message}`;}}
+        else toolResult='Erro: Ferramenta não encontrada.';
+        messages.push({role:'tool',tool_call_id:tc.id,content:String(toolResult).slice(0,8000)});
+        addToolResultMsg(fn,toolResult);
+      }
+      saveConversations();renderChat();
+    }
+    if(!final)final='(o mestre esgotou as iterações sem resposta final — veja as ações de ferramentas acima)';
+    const{elapsed,tps}=stopSpeedTracking(totalCompletionTokens);
+    conv.messages.push({role:'assistant',content:`👑 **Mestre concluiu:**\n\n${final}`,speed:tps,tokens:totalCompletionTokens,time:totalTime.toFixed(1),usage:{prompt_tokens:totalPromptTokens,completion_tokens:totalCompletionTokens}});
+    addStats(totalPromptTokens,totalCompletionTokens,totalTime);
+  }catch(err){
+    stopSpeedTracking(tokenCount);
+    if(err&&err.name==='AbortError')addSystemMsg('⏹ Mestre interrompido.');
+    else addSystemMsg(`❌ Mestre falhou: ${err&&err.message||err}`);
+  }finally{
+    masterToolMode=false;
+    if(btnSend)btnSend.disabled=false;if(btnStop)btnStop.disabled=true;abortController=null;
+    saveConversations();renderChat();renderAllSections();updateMasterUI();
+  }
+}
+// ===== MESTRE — UI =====
+function renderMasterList(){updateMasterUI();}
+function updateMasterUI(){
+  const sel=document.getElementById('masterServerSelect');
+  if(sel)sel.innerHTML='<option value="">— Nenhum —</option>'+servers.map((s,i)=>`<option value="${i}" ${i===masterServerIndex?'selected':''}>${escapeHtml(s.name)}${s.model?` (${escapeHtml(s.model)})`:''}</option>`).join('');
+  const ts=document.getElementById('masterTaskServer');
+  if(ts)ts.innerHTML=servers.map((s,i)=>`<option value="${i}" ${i===masterServerIndex?'selected':''}>${escapeHtml(s.name)}</option>`).join('');
+  const st=document.getElementById('masterStatus');
+  if(st){
+    if(masterServerIndex===null||!servers[masterServerIndex])st.textContent='Nenhum servidor mestre escolhido.';
+    else st.textContent=`👑 ${servers[masterServerIndex].name} · ${skills.length} skill(s) · ${subAgents.length} sub-agente(s) · ${agents.length} agente(s) · modo ${masterActive?'ATIVO':'inativo'} (use "! tarefa" ou ative o modo)`;
+  }
+  const btn=document.getElementById('btnMasterActive');
+  if(btn)btn.textContent=masterActive?'⏸ Desativar modo':'▶ Ativar modo';
+  const badge=document.getElementById('activeMasterBadge');
+  if(badge){
+    if(masterActive&&masterServerIndex!==null&&servers[masterServerIndex]){badge.textContent=`👑 Mestre: ${servers[masterServerIndex].name}`;badge.style.display='inline';}
+    else badge.style.display='none';
+  }
+  const ta=document.getElementById('userInput');
+  if(ta){
+    if(masterActive&&masterServerIndex!==null&&servers[masterServerIndex])ta.placeholder='👑 Modo Mestre ativo — digite a tarefa (ou "! tarefa" avulsa)...';
+    else ta.placeholder='Digite sua mensagem... (@ = workspace local · @@ = Weditor servidor · / = sub-agente · // = skill · \\ = agente · \\\\ = orquestrador · ! = mestre 👑)';
+  }
+}
+function setMasterServer(v){
+  masterServerIndex=(v===''||v===null||v===undefined)?null:parseInt(v,10);
+  if(masterServerIndex!==null&&!servers[masterServerIndex])masterServerIndex=null;
+  saveMasterCfg();updateMasterUI();
+}
+function toggleMasterActive(){
+  if(masterActive){masterActive=false;saveMasterCfg();updateMasterUI();addSystemMsg('👑 Modo Mestre desativado.');return;}
+  if(masterServerIndex===null||!servers[masterServerIndex]){alert('Escolha primeiro um servidor mestre.');return;}
+  masterActive=true;saveMasterCfg();updateMasterUI();
+  addSystemMsg(`👑 Modo Mestre ativado (${servers[masterServerIndex].name}). Tudo que você enviar vira tarefa do mestre. "! tarefa" funciona mesmo com o modo desligado.`);
+}
+function openMasterModal(){
+  updateMasterUI();
+  const ta=document.getElementById('masterTaskText');if(ta)ta.value='';
+  openModal('modalMaster');
+}
+async function runMasterFromModal(){
+  const sv=document.getElementById('masterTaskServer');
+  if(sv&&sv.value!==''){masterServerIndex=parseInt(sv.value,10);saveMasterCfg();}
+  const task=(document.getElementById('masterTaskText')||{}).value?.trim()||'';
+  if(!task){alert('Descreva a tarefa.');return;}
+  if(masterServerIndex===null||!servers[masterServerIndex]){alert('Escolha um servidor mestre.');return;}
+  const newConv=document.getElementById('masterTaskNewConv')?.checked!==false;
+  closeModal('modalMaster');
+  if(newConv||activeConv===null)newConversation();
+  conversations[activeConv].messages.push({role:'user',content:task});
+  saveConversations();renderChat();
+  updateMasterUI();
+  await executeMasterTask(task);
+}
+
+function clearAll(){if(!confirm('⚠️ Apagar TUDO?'))return;servers=[];conversations=[];skills=[];agents=[];subAgents=[];mcps=[];orchestrators=[];memories=[];mcpStatus={};mcpToolsCache={};mmcpToolsCache=[];activeServer=null;activeConv=null;activeSkill=null;activeAgent=null;activeOrch=null;masterServerIndex=null;masterActive=false;saveMasterCfg();backgroundTasks=[];stats={inputTokens:0,outputTokens:0,totalTime:0,requests:0};['llama_servers','llama_convs','llama_skills','llama_agents','llama_subagents','llama_mcps','llama_stats','llama_workspace_files','llama_orchestrators','llama_memories','llama_master','mmcp_enabled'].forEach(k=>localStorage.removeItem(k));document.getElementById('activeServerName').textContent='Nenhum';document.getElementById('activeSkillBadge').style.display='none';document.getElementById('activeAgentBadge').style.display='none';if(document.getElementById('activeMasterBadge'))document.getElementById('activeMasterBadge').style.display='none';renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderMemories();updateMemoryBadges();updateMasterUI();renderChat();renderTasks();updateStatsDisplay();}
 async function logoff(){
   if(abortController)try{abortController.abort();}catch(e){}
-  activeServer=null;activeConv=null;activeSkill=null;activeAgent=null;activeOrch=null;
+  activeServer=null;activeConv=null;activeSkill=null;activeAgent=null;activeOrch=null;masterActive=false;saveMasterCfg();masterToolMode=false;
   pendingAttachments=[];renderAttachPreview();
   document.getElementById('activeServerName').textContent='Nenhum';
   document.getElementById('activeServerSelect').value='';
   document.getElementById('activeSkillBadge').style.display='none';
   document.getElementById('activeAgentBadge').style.display='none';
   document.getElementById('activeOrchBadge').style.display='none';
+  if(document.getElementById('activeMasterBadge'))document.getElementById('activeMasterBadge').style.display='none';
   if(document.getElementById('activeMemBadge'))document.getElementById('activeMemBadge').style.display='none';
   if(document.getElementById('activeGlobalMemBadge'))document.getElementById('activeGlobalMemBadge').style.display='none';
   document.getElementById('userInput').value='';
   stats={inputTokens:0,outputTokens:0,totalTime:0,requests:0};localStorage.setItem('llama_stats',JSON.stringify(stats));updateStatsDisplay();
-  renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderMemories();updateMemoryBadges();renderChat();renderTasks();
+  renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderMemories();updateMemoryBadges();updateMasterUI();renderChat();renderTasks();
   try{ await fetch(location.pathname+(location.search?'&':'?')+'action=logout',{method:'POST'}); }catch(e){}
   location.href=location.pathname+location.search;
 }
@@ -2084,7 +2392,7 @@ function updateSkillBadge(){const b=document.getElementById('activeSkillBadge');
 function clearSkillForm(){['skillName','skillPrompt','skillTemp','skillIcon'].forEach(id=>document.getElementById(id).value='');}
 
 function updateServerSelect(){const sel=document.getElementById('activeServerSelect');sel.innerHTML='<option value="">— Nenhum —</option>'+servers.map((s,i)=>`<option value="${i}">${escapeHtml(s.name)}</option>`).join('');sel.value=activeServer!==null?String(activeServer):'';}
-function renderServers(){updateServerSelect();document.getElementById('serverList').innerHTML=servers.map((s,i)=>`<div class="server-item ${activeServer===i?'active':''}" onclick="selectServer(${i})"><div class="server-info"><span class="server-title">${s.name}${s.fallbacks&&s.fallbacks.length?` <span class="mcp-badge">🔁 ${s.fallbacks.length}</span>`:''}${s.ollama?' <span class="mcp-badge">🦙</span>':''}</span>${s.model?`<span class="server-model">${s.model}</span>`:''}</div><div class="item-actions"><button onclick="event.stopPropagation();editServer(${i})">✏️</button><button onclick="event.stopPropagation();deleteServer(${i})">🗑</button></div></div>`).join('');}
+function renderServers(){updateServerSelect();document.getElementById('serverList').innerHTML=servers.map((s,i)=>`<div class="server-item ${activeServer===i?'active':''}" onclick="selectServer(${i})"><div class="server-info"><span class="server-title">${s.name}${s.fallbacks&&s.fallbacks.length?` <span class="mcp-badge">🔁 ${s.fallbacks.length}</span>`:''}${s.ollama?' <span class="mcp-badge">🦙</span>':''}${i===masterServerIndex?' <span class="mcp-badge" title="Servidor mestre">👑</span>':''}</span>${s.model?`<span class="server-model">${s.model}</span>`:''}</div><div class="item-actions"><button onclick="event.stopPropagation();editServer(${i})">✏️</button><button onclick="event.stopPropagation();deleteServer(${i})">🗑</button></div></div>`).join('');if(typeof updateMasterUI==='function'&&document.getElementById('masterServerSelect')){try{updateMasterUI();}catch(e){}}}
 function selectServer(i){if(i==null||isNaN(i)||!servers[i]){activeServer=null;document.getElementById('activeServerName').textContent='Nenhum';renderServers();return;}activeServer=i;document.getElementById('activeServerName').textContent=servers[i].name;renderServers();}
 function toggleServerAdvanced(){
   const fields=document.getElementById('serverAdvancedFields');
@@ -2125,6 +2433,7 @@ async function removeDuplicateServers(){
     servers.forEach((s,i)=>{if(!idxSet.has(i)){remap[i]=newIdx;newIdx++;}});
     servers=servers.filter((s,i)=>!idxSet.has(i));
     if(activeServer!==null){if(idxSet.has(activeServer))activeServer=null;else activeServer=remap[activeServer];}
+    if(masterServerIndex!==null){if(idxSet.has(masterServerIndex))masterServerIndex=null;else masterServerIndex=remap[masterServerIndex];saveMasterCfg();updateMasterUI();}
     agents.forEach(a=>{if(a.serverIndex!=null)a.serverIndex=idxSet.has(a.serverIndex)?null:remap[a.serverIndex];});
     subAgents.forEach(sa=>{if(sa.serverIndex!=null)sa.serverIndex=idxSet.has(sa.serverIndex)?null:remap[sa.serverIndex];});
     servers.forEach(s=>{if(Array.isArray(s.fallbacks))s.fallbacks=s.fallbacks.filter(f=>!idxSet.has(f)&&remap[f]!==undefined).map(f=>remap[f]);});
@@ -2148,7 +2457,7 @@ async function removeDuplicateServers(){
   }
   alert(msg);
 }
-function deleteServer(i){if(!confirm('Remover?'))return;servers.splice(i,1);if(activeServer===i){activeServer=null;document.getElementById('activeServerName').textContent='Nenhum';}else if(activeServer>i)activeServer--;servers.forEach(s=>{if(Array.isArray(s.fallbacks))s.fallbacks=s.fallbacks.filter(f=>f!==i).map(f=>f>i?f-1:f).filter(f=>servers[f]);});localStorage.setItem('llama_servers',JSON.stringify(servers));renderServers();}
+function deleteServer(i){if(!confirm('Remover?'))return;servers.splice(i,1);if(activeServer===i){activeServer=null;document.getElementById('activeServerName').textContent='Nenhum';}else if(activeServer>i)activeServer--;if(masterServerIndex===i){masterServerIndex=null;masterActive=false;saveMasterCfg();}else if(masterServerIndex>i)masterServerIndex--;servers.forEach(s=>{if(Array.isArray(s.fallbacks))s.fallbacks=s.fallbacks.filter(f=>f!==i).map(f=>f>i?f-1:f).filter(f=>servers[f]);});localStorage.setItem('llama_servers',JSON.stringify(servers));saveMasterCfg();renderServers();updateMasterUI();}
 function clearServerForm(){['srvName','srvURL','srvModel','srvMaxTokens','srvNCtx','srvTemp','srvTopP','srvSystem','srvApiKey'].forEach(id=>document.getElementById(id).value='');document.getElementById('srvMaxMsgs').value='20';document.getElementById('srvApiKeyType').value='bearer';document.getElementById('srvProxy').checked=false;document.getElementById('srvOllama').checked=false;document.getElementById('srvApiKey').type='password';document.getElementById('modelStatus').textContent='';hideModelSelect();}
 let srvFallbackOrder=[];
 function populateServerFallbacks(){
@@ -2459,8 +2768,22 @@ async function streamChatCompletion(srv, body, onDelta, signal){
   return{content,tool_calls:finalToolCalls,usage,reasoning,model};
 }
 
- async function sendMessage(){
-   const input=document.getElementById('userInput');const text=input.value.trim();if(!text&&!pendingAttachments.length)return;
+  async function sendMessage(){
+    const input=document.getElementById('userInput');const text=input.value.trim();if(!text&&!pendingAttachments.length)return;
+  // 👑 Mestre: prefixo "! tarefa" (avulso) ou modo mestre ativo
+  const masterOnce=text.match(/^[!👑]\s*(.+)$/s);
+  if(masterOnce){
+    if(masterServerIndex===null||!servers[masterServerIndex]){alert('Escolha um servidor mestre na seção Mestre 👑.');return;}
+    const task=masterOnce[1].trim();if(!task)return;
+    if(activeConv===null)newConversation();
+    conversations[activeConv].messages.push({role:'user',content:text});input.value='';pendingAttachments=[];renderAttachPreview();renderChat();saveConversations();
+    executeMasterTask(task);return;
+  }
+  if(masterActive&&masterServerIndex!==null&&servers[masterServerIndex]){
+    if(activeConv===null)newConversation();
+    conversations[activeConv].messages.push({role:'user',content:text});input.value='';pendingAttachments=[];renderAttachPreview();renderChat();saveConversations();
+    executeMasterTask(text);return;
+  }
   const cmd=parseSubAgentCommand(text);
   if(cmd){if(activeConv===null)newConversation();conversations[activeConv].messages.push({role:'user',content:text});input.value='';renderChat();saveConversations();const task=addTask(cmd.task.substring(0,80),cmd.subAgent.name);addTaskMsg(`🚀 "${cmd.subAgent.name}" iniciado.`);executeSubAgentTask(cmd.subAgent,cmd.task,task.id);return;}
   if(activeOrch!==null&&orchestrators[activeOrch]){
@@ -2780,8 +3103,8 @@ function applyFontScale(){fontScale=Math.max(0.7,Math.min(1.8,fontScale));docume
 function changeFontScale(delta){fontScale=Math.round((fontScale+delta)*10)/10;applyFontScale();}
 applyFontScale();
 
-function exportAll(){const d=JSON.stringify({servers,conversations,skills,agents,subAgents,mcps,orchestrators,memories},null,2);const b=new Blob([d],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='llama-chat-backup.json';a.click();}
-async function importAll(event){const file=event.target.files[0];if(!file)return;const st=document.getElementById('importStatus');const reader=new FileReader();reader.onload=async(e)=>{try{const data=JSON.parse(e.target.result);if(data.servers){servers=data.servers;st.className='import-status working';for(let i=0;i<servers.length;i++){if(!servers[i].model){const d=await detectModelFromURL(servers[i].url,servers[i]);if(d)servers[i].model=d;}st.textContent=`🔍 (${i+1}/${servers.length})...`;renderServers();}localStorage.setItem('llama_servers',JSON.stringify(servers));st.className='import-status done';st.textContent=`✓ ${servers.length} importados.`;setTimeout(()=>{st.textContent='';st.className='import-status';},5000);}if(data.conversations){conversations=data.conversations;conversations.forEach(ensureConvMem);localStorage.setItem('llama_convs',JSON.stringify(conversations));}if(data.skills){skills=data.skills;localStorage.setItem('llama_skills',JSON.stringify(skills));}if(data.agents){agents=data.agents;localStorage.setItem('llama_agents',JSON.stringify(agents));}if(data.subAgents){subAgents=data.subAgents;localStorage.setItem('llama_subagents',JSON.stringify(subAgents));}if(data.mcps){mcps=data.mcps;localStorage.setItem('llama_mcps',JSON.stringify(mcps));}if(data.orchestrators){orchestrators=data.orchestrators;localStorage.setItem('llama_orchestrators',JSON.stringify(orchestrators));}if(data.memories){memories=data.memories;saveMemories();}renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderMemories();updateMemoryBadges();checkAllMCPStatus();refreshMicroMCPTools();}catch{st.textContent='✗ Inválido.';setTimeout(()=>st.textContent='',4000);}};reader.readAsText(file);event.target.value='';}
+function exportAll(){const d=JSON.stringify({servers,conversations,skills,agents,subAgents,mcps,orchestrators,memories,master:{serverIndex:masterServerIndex,active:false}},null,2);const b=new Blob([d],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='llama-chat-backup.json';a.click();}
+async function importAll(event){const file=event.target.files[0];if(!file)return;const st=document.getElementById('importStatus');const reader=new FileReader();reader.onload=async(e)=>{try{const data=JSON.parse(e.target.result);if(data.servers){servers=data.servers;st.className='import-status working';for(let i=0;i<servers.length;i++){if(!servers[i].model){const d=await detectModelFromURL(servers[i].url,servers[i]);if(d)servers[i].model=d;}st.textContent=`🔍 (${i+1}/${servers.length})...`;renderServers();}localStorage.setItem('llama_servers',JSON.stringify(servers));st.className='import-status done';st.textContent=`✓ ${servers.length} importados.`;setTimeout(()=>{st.textContent='';st.className='import-status';},5000);}if(data.conversations){conversations=data.conversations;conversations.forEach(ensureConvMem);localStorage.setItem('llama_convs',JSON.stringify(conversations));}if(data.skills){skills=data.skills;localStorage.setItem('llama_skills',JSON.stringify(skills));}if(data.agents){agents=data.agents;localStorage.setItem('llama_agents',JSON.stringify(agents));}if(data.subAgents){subAgents=data.subAgents;localStorage.setItem('llama_subagents',JSON.stringify(subAgents));}if(data.mcps){mcps=data.mcps;localStorage.setItem('llama_mcps',JSON.stringify(mcps));}if(data.orchestrators){orchestrators=data.orchestrators;localStorage.setItem('llama_orchestrators',JSON.stringify(orchestrators));}if(data.memories){memories=data.memories;saveMemories();}if(data.master&&typeof data.master==='object'){masterServerIndex=(data.master.serverIndex!==undefined&&servers[data.master.serverIndex])?data.master.serverIndex:null;masterActive=false;saveMasterCfg();}renderServers();renderConversations();renderSkills();renderAgents();renderSubAgents();renderMCPs();renderOrchestrators();renderMemories();updateMemoryBadges();updateMasterUI();checkAllMCPStatus();refreshMicroMCPTools();}catch{st.textContent='✗ Inválido.';setTimeout(()=>st.textContent='',4000);}};reader.readAsText(file);event.target.value='';}
 
 let pendingAttachments=[];
 function handleAttach(event){

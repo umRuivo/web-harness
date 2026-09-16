@@ -74,6 +74,19 @@
       <div id="mcpList"></div>
     </div>
   </div>
+  <div class="sidebar-section" id="masterSection">
+    <h3 onclick="toggleSection('masterSection','llama_master_collapsed')">Mestre 👑 <span class="section-toggle">▾</span></h3>
+    <div class="section-body">
+      <div class="hint">Escolha um servidor para ser o mestre. Ele recebe a tarefa e pode criar/escolher skills, sub-agentes, agentes, memórias e conversas para cumpri-la.</div>
+      <label style="font-size:.85em;font-weight:bold">Servidor mestre</label>
+      <div class="btn-row"><select id="masterServerSelect" onchange="setMasterServer(this.value)" style="flex:1"></select></div>
+      <div class="btn-row">
+        <button class="btn small primary" onclick="openMasterModal()">👑 Nova tarefa</button>
+        <button class="btn small" id="btnMasterActive" onclick="toggleMasterActive()">▶ Ativar modo</button>
+      </div>
+      <div id="masterStatus" class="hint"></div>
+    </div>
+  </div>
   <div class="sidebar-section" id="orchSection">
     <h3 onclick="toggleSection('orchSection','llama_orchs_collapsed')">Orquestradores <span class="section-toggle">▾</span></h3>
     <div class="section-body">
@@ -93,6 +106,7 @@
     <span class="agent-badge-top" id="activeAgentBadge" style="display:none"></span>
     <span class="skill-badge" id="activeSkillBadge" style="display:none"></span>
     <span class="orch-active-badge" id="activeOrchBadge" style="display:none"></span>
+    <span class="orch-active-badge" id="activeMasterBadge" style="display:none;background:#ffd34e" title="Modo Mestre ativo: mensagens vão para o servidor mestre"></span>
     <span class="skill-badge" id="activeMemBadge" style="display:none" title="Memória individual ativa">🧠</span>
     <span class="skill-badge" id="activeGlobalMemBadge" style="display:none" title="Memórias globais ativas">🌐</span>
     <span class="speed-indicator" id="speedIndicator">⚡ 0 tok/s</span>
@@ -123,10 +137,10 @@
 
   <div class="tasks-panel" id="tasksPanel"></div>
   <div class="chat-area" id="chatArea"><div class="msg system-msg">Selecione um servidor e inicie uma conversa.</div></div>
-  <div class="input-hint">💡 <code>/subagente tarefa</code> = background · <code>/</code> = sub-agente · <code>//</code> = skill · <code>\</code> = agente · <code>\\</code> = orquestrador · 🔧 MCPs = tools · 🌐 Wcurl = fetch() com fallback CORS</div>
+  <div class="input-hint">💡 <code>/subagente tarefa</code> = background · <code>/</code> = sub-agente · <code>//</code> = skill · <code>\</code> = agente · <code>\\</code> = orquestrador · <code>! tarefa</code> = mestre 👑 · 🔧 MCPs = tools · 🌐 Wcurl = fetch() com fallback CORS</div>
   <div class="input-area">
     <div class="mention-popup" id="mentionPopup"></div>
-    <textarea id="userInput" rows="2" placeholder="Digite sua mensagem... (@ = workspace local · @@ = Weditor servidor · / = sub-agente · // = skill · \ = agente · \\ = orquestrador)" onkeydown="handleKey(event)" oninput="updateMentionPopup()" onclick="updateMentionPopup()"></textarea>
+    <textarea id="userInput" rows="2" placeholder="Digite sua mensagem... (@ = workspace local · @@ = Weditor servidor · / = sub-agente · // = skill · \ = agente · \\ = orquestrador · ! = mestre 👑)" onkeydown="handleKey(event)" oninput="updateMentionPopup()" onclick="updateMentionPopup()"></textarea>
     <div id="attachPreview" class="attach-preview"></div>
     <button class="btn primary" id="btnSend" onclick="sendMessage()">Enviar</button>
   </div>
@@ -267,6 +281,15 @@
   <div class="json-preview" id="mcpJSONPreview"></div>
   <div class="hint" style="margin-top:8px">Formatos: <code>{"mcp":{...}}</code> · <code>{"nome":{url,...}}</code> · <code>[{name,url,...}]</code></div>
   <div class="btn-row"><button class="btn" onclick="closeModal('modalMCPJSON')">Cancelar</button><button class="btn primary" id="btnImportMCPJSON" onclick="importMCPFromJSON()" disabled>Importar</button></div>
+</div></div>
+
+<div class="modal-overlay" id="modalMaster"><div class="modal">
+  <h2>👑 Mestre — Nova tarefa</h2>
+  <label>Servidor mestre</label><select id="masterTaskServer"></select>
+  <label>Tarefa para o mestre</label><textarea id="masterTaskText" rows="5" placeholder="Ex.: Crie um sub-agente revisor, uma skill de resumo e organize as memórias do projeto X..."></textarea>
+  <div class="hint">O mestre usa o servidor escolhido e pode <strong>listar, criar e escolher</strong> skills, sub-agentes, agentes, memórias e conversas (via tools <code>master_*</code>), além de delegar execução (<code>master_run_*</code>) e usar as MCPs ativas (workspace, wcurl, etc.). Acompanhe as ações no chat.</div>
+  <label class="checkbox-label"><input type="checkbox" id="masterTaskNewConv" checked> Criar nova conversa para esta tarefa</label>
+  <div class="btn-row"><button class="btn" onclick="closeModal('modalMaster')">Cancelar</button><button class="btn primary" onclick="runMasterFromModal()">👑 Executar</button></div>
 </div></div>
 
 <div class="modal-overlay" id="modalOrch"><div class="modal orch-modal">
