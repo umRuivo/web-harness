@@ -1459,6 +1459,12 @@ const PROJECT_FUNCTIONS=[
     ['Mestre 👑','Servidor mestre que recebe uma tarefa ("! tarefa" ou modo ativo) e cria/escolhe skills, sub-agentes, agentes, memórias e conversas para cumpri-la.'],
     ['Orquestradores','Pipelines multi-etapa que coordenam agentes, sub-agentes e ferramentas.']
   ]},
+  {title:'👑 Mestre',items:[
+    ['Escolher o servidor mestre','Na seção Mestre da sidebar, selecione qual servidor vai comandar a tarefa.'],
+    ['Dar a tarefa','Use o botão Nova tarefa, ative o modo mestre ou digite "! sua tarefa" no chat.'],
+    ['Criar ou escolher recursos','O mestre lista o que já existe e só cria o que faltar: skills, sub-agentes, agentes, memórias e conversas.'],
+    ['Delegar execução','Trechos especializados são delegados a sub-agentes e agentes, que devolvem o resultado ao mestre.']
+  ]},
   {title:'📁 Arquivos',items:[
     ['Workspace local','Cria, lê, edita, renomeia e exclui arquivos salvos no navegador (localStorage).'],
     ['Workspace do servidor','Gerencia arquivos no servidor PHP: listar, ler, escrever, criar pastas, buscar e mais.'],
